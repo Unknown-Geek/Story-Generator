@@ -3,15 +3,19 @@ from flask_cors import CORS
 import requests
 import io
 import base64
+from url_store import get_url
 
 app = Flask(__name__)
 CORS(app)
 
-COLAB_URL = "YOUR_COLAB_NOTEBOOK_URL"  # Replace with your Colab notebook public URL
-
 @app.route('/generate', methods=['POST'])
 def generate_story():
     try:
+        # Get Colab URL
+        colab_url = get_url()
+        if not colab_url:
+            return jsonify({'error': 'AI server URL not found'}), 500
+            
         # Get image and genre from request
         image_file = request.files['file']
         genre = request.form['genre']
@@ -25,7 +29,7 @@ def generate_story():
             'genre': genre
         }
         
-        response = requests.post(COLAB_URL, json=payload)
+        response = requests.post(colab_url, json=payload)
         
         if response.status_code == 200:
             return jsonify({'story': response.json()['story']})

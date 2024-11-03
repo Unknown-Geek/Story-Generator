@@ -3,12 +3,16 @@ from PIL import Image
 import requests
 import io
 import base64
+from url_store import get_url
 
 def main():
     st.title("Granny's Tales - Story Generator")
     
-    # Colab URL input
-    colab_url = st.text_input("Enter your Colab URL (from ngrok):", "")
+    # Automatically get Colab URL
+    colab_url = get_url()
+    if not colab_url:
+        st.error("AI server URL not found. Please ensure the server is running.")
+        return
     
     # Genre selection
     genre = st.selectbox(
