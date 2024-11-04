@@ -3,19 +3,13 @@ from flask_cors import CORS
 import requests
 import io
 import base64
-from url_store import get_url
 
 app = Flask(__name__)
 CORS(app)
 
-@app.route('/generate', methods=['POST'])
+@app.route('/generate_story', methods=['POST'])
 def generate_story():
     try:
-        # Get Colab URL
-        colab_url = get_url()
-        if not colab_url:
-            return jsonify({'error': 'AI server URL not found'}), 500
-            
         # Get image and genre from request
         image_file = request.files['file']
         genre = request.form['genre']

@@ -3,15 +3,16 @@ from PIL import Image
 import requests
 import io
 import base64
-from url_store import get_url
 
 def main():
     st.title("Granny's Tales - Story Generator")
     
-    # Automatically get Colab URL
-    colab_url = get_url()
+    # Manual URL input
+    colab_url = st.sidebar.text_input("AI Server URL", 
+                                     placeholder="Enter the URL from Colab notebook")
+    
     if not colab_url:
-        st.error("AI server URL not found. Please ensure the server is running.")
+        st.error("Please enter the AI server URL from your Colab notebook")
         return
     
     # Genre selection
@@ -36,20 +37,31 @@ def main():
                     img_str = base64.b64encode(buffered.getvalue()).decode()
                     
                     # Send to Colab
-                    payload = {
-                        'image': f'data:image/jpeg;base64,{img_str}',
-                        'genre': genre
-                    }
+                    response = requests.post(
+                        colab_url,
+                        json={
+                            'image': f'data:image/jpeg;base64,{img_str}',
+                            'genre': genre
+                        },
+                        timeout=30  # Increase timeout for model processing
+                    )
                     
-                    response = requests.post(colab_url, json=payload)
-                    
-                    if response.status_code == 200 and response.json().get('success', False):
-                        story = response.json()['story']
-                        st.success("Story generated successfully!")
-                        st.write("### Your Story:")
-                        st.write(story)
+                    if response.status_code == 200:
+                        result = response.json()
+                        if result.get('success'):
+                            story = result['story']
+                            st.success("Story generated successfully!")
+                            st.write("### Your Story:")
+                            st.write(story)
+                        else:
+                            st.error(f"Error: {result.get('error', 'Unknown error')}")
                     else:
-                        st.error("Failed to generate story. Please check your Colab URL and try again.")
+                        st.error(f"Failed to generate story. Status code: {response.status_code}")
+                        
+                except requests.exceptions.Timeout:
+                    st.error("Request timed out. The server took too long to respond.")
+                except requests.exceptions.RequestException as e:
+                    st.error(f"Network error: {str(e)}")
                 except Exception as e:
                     st.error(f"Error: {str(e)}")
 
