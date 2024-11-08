@@ -5,7 +5,7 @@ import io
 import base64
 from urllib.parse import urljoin
 import logging
-import pyttsx3
+from gtts import gTTS
 import tempfile
 import os
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
@@ -62,39 +62,18 @@ def process_image(image):
         logger.error(f"Error processing image: {str(e)}")
         raise
 
-def generate_narration(text, voice_option="gTTS", voice_settings=None):
-    """Generate audio narration of the text"""
+def generate_narration(text, voice_settings=None):
+    """Generate audio narration of the text using gTTS"""
     try:
         temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
         
-        if voice_option == "gTTS" and GTTS_AVAILABLE:
-            # Google Text-to-Speech
-            tts = gTTS(text=text, lang=voice_settings.get('lang', 'en'), slow=voice_settings.get('slow', False))
-            tts.save(temp_audio.name)
-        else:
-            # Local TTS with pyttsx3
-            engine = pyttsx3.init()
-            voices = engine.getProperty('voices')
-            
-            # Set voice
-            if voice_settings and voice_settings.get('voice'):
-                for voice in voices:
-                    if voice_settings['voice'] in voice.name:
-                        engine.setProperty('voice', voice.id)
-                        break
-            
-            # Set speed and volume
-            speed = voice_settings.get('speed', 1.0) if voice_settings else 1.0
-            volume = voice_settings.get('volume', 0.8) if voice_settings else 0.8
-            
-            engine.setProperty('rate', int(engine.getProperty('rate') * speed))
-            engine.setProperty('volume', volume)
-            
-            # Generate audio
-            engine.save_to_file(text, temp_audio.name)
-            engine.runAndWait()
-            
+        # Google Text-to-Speech
+        tts = gTTS(text=text, 
+                   lang=voice_settings.get('lang', 'en-US'), 
+                   slow=voice_settings.get('slow', False))
+        tts.save(temp_audio.name)
         return temp_audio.name
+            
     except Exception as e:
         logger.error(f"Error generating narration: {str(e)}")
         raise
@@ -119,6 +98,12 @@ def format_story(story):
     return '\n\n'.join(paragraphs)
 
 def main():
+    # Initialize session state
+    if 'story' not in st.session_state:
+        st.session_state.story = None
+    if 'audio_file' not in st.session_state:
+        st.session_state.audio_file = None
+
     st.title("Story Generator (with Narration)")
     
     # Manual URL input with validation
@@ -142,33 +127,43 @@ def main():
             "Select story length:",
             ["Short (200 words)", "Medium (400 words)", "Long (600 words)"]
         )
-        # Extract length value
         length = story_length.split()[0].lower()
     
-    # Voice options with more controls
+    # Voice settings in sidebar
     st.sidebar.markdown("### Narration Settings")
-    voice_option = st.sidebar.radio(
-        "Select Voice Engine:",
-        ["gTTS (Google)", "Local TTS"] if GTTS_AVAILABLE else ["Local TTS"]
-    )
-    
     voice_settings = {}
-    if voice_option == "Local TTS":
-        engine = pyttsx3.init()
-        voices = engine.getProperty('voices')
-        voice_names = [voice.name for voice in voices]
-        voice_settings['voice'] = st.sidebar.selectbox("Select Voice:", voice_names)
-        voice_settings['speed'] = st.sidebar.slider("Speech Speed:", 0.5, 2.0, 1.0, 0.1)
-        voice_settings['volume'] = st.sidebar.slider("Volume:", 0.0, 1.0, 0.8, 0.1)
-    else:
-        voice_settings['lang'] = st.sidebar.selectbox("Select Language:", ["en-US", "en-GB", "en-AU"])
-        voice_settings['slow'] = st.sidebar.checkbox("Slow Mode", False)
-    
+    voice_settings['lang'] = st.sidebar.selectbox("Select Language:", 
+                                                 ["en-US", "en-GB", "en-AU", "en-IN"])
+    voice_settings['slow'] = st.sidebar.checkbox("Slow Mode", False)
+
+    # If settings changed and we have a story, regenerate narration
+    if st.session_state.story and st.sidebar.button("Update Narration"):
+        with st.spinner('Updating narration...'):
+            try:
+                if st.session_state.audio_file:
+                    os.unlink(st.session_state.audio_file)
+                st.session_state.audio_file = generate_narration(
+                    st.session_state.story,
+                    voice_settings
+                )
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Failed to update narration: {str(e)}")
+
     col1, col2 = st.columns([2, 1])
     with col1:
         story_button = st.button("Generate Story")
     with col2:
         auto_narrate = st.checkbox("Auto-Narrate", True)
+    
+    # Display existing story and audio if available
+    if st.session_state.story:
+        st.write("### Your Story:")
+        st.write(st.session_state.story)
+        
+        if st.session_state.audio_file and os.path.exists(st.session_state.audio_file):
+            st.write("### Story Narration")
+            st.audio(st.session_state.audio_file, format='audio/mp3')
     
     if story_button:
         with st.spinner('Generating story...'):
@@ -179,9 +174,9 @@ def main():
                     f"{base_url}/generate_story",
                     json={
                         'genre': genre,
-                        'length': length  # Send selected length
+                        'length': length
                     },
-                    timeout=120,  # Increase timeout to 120 seconds
+                    timeout=120,
                     verify=False
                 )
                 
@@ -190,49 +185,25 @@ def main():
                     if result.get('success'):
                         story = result.get('story')
                         if story:
-                            # Format and display story
-                            formatted_story = format_story(story)
-                            st.success("Story generated successfully!")
-                            st.write("### Your Story:")
-                            st.write(formatted_story)
+                            # Store formatted story in session state
+                            st.session_state.story = format_story(story)
                             
-                            # Generate narration if auto-narrate is enabled
+                            # Clean up old audio if exists
+                            if st.session_state.audio_file and os.path.exists(st.session_state.audio_file):
+                                os.unlink(st.session_state.audio_file)
+                            
+                            # Generate new narration if auto-narrate is enabled
                             if auto_narrate:
                                 with st.spinner('Generating narration...'):
                                     try:
-                                        audio_file = generate_narration(
-                                            formatted_story,
-                                            "gTTS" if voice_option == "gTTS (Google)" else "Local",
+                                        st.session_state.audio_file = generate_narration(
+                                            st.session_state.story,
                                             voice_settings
                                         )
-                                        
-                                        # Audio player with controls
-                                        st.write("### Story Narration")
-                                        audio_player = st.audio(audio_file, format='audio/mp3')
-                                        
-                                        # Cleanup
-                                        os.unlink(audio_file)
-                                        
                                     except Exception as e:
                                         st.error(f"Failed to generate narration: {str(e)}")
-                            else:
-                                if st.button("Generate Narration"):
-                                    with st.spinner('Generating narration...'):
-                                        try:
-                                            audio_file = generate_narration(
-                                                formatted_story,
-                                                "gTTS" if voice_option == "gTTS (Google)" else "Local",
-                                                voice_settings
-                                            )
-                                            
-                                            # Audio player with controls
-                                            st.write("### Story Narration")
-                                            audio_player = st.audio(audio_file, format='audio/mp3')
-                                            
-                                            # Cleanup
-                                            os.unlink(audio_file)
-                                        except Exception as e:
-                                            st.error(f"Failed to generate narration: {str(e)}")
+                            
+                            st.experimental_rerun()
                         else:
                             st.error("No story was generated")
                     else:
