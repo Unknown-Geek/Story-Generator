@@ -5,19 +5,19 @@ import io
 import base64
 import time
 import os
-import sys
-import zipfile
 from urllib.parse import urljoin, quote
 import logging
 import tempfile
-import shutil
-import urllib.request
 from gtts import gTTS
-import pygame
-from pydub import AudioSegment
-import threading
 from dotenv import load_dotenv
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
+
+# Load environment variables and configure logging
+load_dotenv()
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+logging.captureWarnings(True)
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # Try importing gTTS, fallback to pyttsx3 only if it fails
 try:
@@ -233,52 +233,6 @@ def get_enhanced_animation_css() -> str:
         }
         </style>
     """
-
-def setup_ffmpeg():
-    """Download and setup ffmpeg and ffprobe"""
-    tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools')
-    os.makedirs(tools_dir, exist_ok=True)
-
-    ffmpeg_path = os.path.join(tools_dir, 'ffmpeg.exe')
-    ffprobe_path = os.path.join(tools_dir, 'ffprobe.exe')
-
-    # Skip if already installed
-    if os.path.exists(ffmpeg_path) and os.path.exists(ffprobe_path):
-        os.environ["PATH"] = os.path.dirname(ffmpeg_path) + os.pathsep + os.environ["PATH"]
-        return True
-
-    try:
-        # Download URL
-        url = "https://github.com/GyanD/codexffmpeg/releases/download/6.0/ffmpeg-6.0-full_build.zip"
-        zip_path = os.path.join(tools_dir, 'ffmpeg.zip')
-
-        print("Downloading ffmpeg...")
-        urllib.request.urlretrieve(url, zip_path)
-
-        print("Extracting ffmpeg...")
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            ffmpeg_files = [f for f in zip_ref.namelist() if f.endswith(('ffmpeg.exe', 'ffprobe.exe'))]
-            for file in ffmpeg_files:
-                zip_ref.extract(file, tools_dir)
-                final_path = ffmpeg_path if file.endswith('ffmpeg.exe') else ffprobe_path
-                shutil.move(os.path.join(tools_dir, file), final_path)
-
-        # Cleanup
-        os.remove(zip_path)
-        for root, dirs, files in os.walk(tools_dir, topdown=False):
-            for name in dirs:
-                try:
-                    os.rmdir(os.path.join(root, name))
-                except OSError:
-                    pass
-
-        # Add to PATH
-        os.environ["PATH"] = os.path.dirname(ffmpeg_path) + os.pathsep + os.environ["PATH"]
-        return True
-
-    except Exception as e:
-        print(f"Error setting up ffmpeg: {e}")
-        return False
 
 def display_interactive_story(story: str, audio_file: str):
     """Display story interactively with synchronized animations"""
@@ -503,6 +457,4 @@ def main():
         st.session_state.should_play = False  # Reset play flag after display
 
 if __name__ == '__main__':
-    if not setup_ffmpeg():
-        st.error("Failed to setup audio processing. Some features may not work.")
     main()

@@ -11,6 +11,4 @@ torch>=2.0.0
 torchvision
 blinker==1.6.2
 gTTS==2.3.2
-pyttsx3==2.90
-pygame==2.5.2
 python-dotenv==1.0.0
