@@ -3,6 +3,7 @@ import sys
 import os
 from pathlib import Path
 import pip
+from url_store import is_url_file_valid
 
 def check_env_file():
     env_path = Path(__file__).parent / '.env'
@@ -17,6 +18,9 @@ def install_requirements():
     try:
         if not check_env_file():
             print("Please set up your .env file before continuing.")
+            sys.exit(1)
+        if not is_url_file_valid():
+            print("Please ensure the URL file is valid before continuing.")
             sys.exit(1)
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
         # Verify gTTS installation specifically

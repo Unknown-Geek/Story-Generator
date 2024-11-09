@@ -3,11 +3,20 @@ from PIL import Image
 import requests
 import io
 import base64
-from urllib.parse import urljoin
-import logging
-from gtts import gTTS
-import tempfile
+import time
 import os
+import sys
+import zipfile
+from urllib.parse import urljoin, quote
+import logging
+import tempfile
+import shutil
+import urllib.request
+from gtts import gTTS
+import pygame
+from pydub import AudioSegment
+import threading
+from dotenv import load_dotenv
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
 # Try importing gTTS, fallback to pyttsx3 only if it fails
@@ -18,18 +27,32 @@ except ImportError:
     GTTS_AVAILABLE = False
     st.warning("gTTS not available. Using local TTS only.")
 
+# Load environment variables
+load_dotenv()
+
 # Configure warnings and logging
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 logging.captureWarnings(True)
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+# Replace Unsplash API configuration with Pexels
+PEXELS_API_KEY = os.getenv('PEXELS_API_KEY')
+PEXELS_API_URL = "https://api.pexels.com/v1/search"
+
 def validate_url(url):
+    """Validate and clean URL"""
     if not url:
         return None
-    url = url.strip()  # Remove any leading/trailing whitespace
+    url = url.strip()
+    # Remove any file:// prefix
+    if url.startswith('file://'):
+        url = url[7:]
+    # Ensure proper http(s) prefix
     if not url.startswith(('http://', 'https://')):
         url = f'https://{url}'
+    # Remove any /generate_story suffix
+    url = url.split('/generate_story')[0]
     return url
 
 def process_image(image):
@@ -62,17 +85,29 @@ def process_image(image):
         logger.error(f"Error processing image: {str(e)}")
         raise
 
-def generate_narration(text, voice_settings=None):
+def generate_narration(text, voice_settings):
     """Generate audio narration of the text using gTTS"""
     try:
-        temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+        # Create a temporary file with a specific name
+        temp_dir = tempfile.mkdtemp()
+        temp_audio = os.path.join(temp_dir, 'narration.mp3')
         
-        # Google Text-to-Speech
-        tts = gTTS(text=text, 
-                   lang=voice_settings.get('lang', 'en-US'), 
-                   slow=voice_settings.get('slow', False))
-        tts.save(temp_audio.name)
-        return temp_audio.name
+        # Generate the audio
+        tts = gTTS(
+            text=text, 
+            lang='en',
+            tld=voice_settings['accent'],
+            slow=(voice_settings['speed'] == 'slow')
+        )
+        
+        # Save the audio file
+        tts.save(temp_audio)
+        
+        # Verify the file exists and is readable
+        if not os.path.exists(temp_audio):
+            raise FileNotFoundError("Failed to create audio file")
+            
+        return temp_audio
             
     except Exception as e:
         logger.error(f"Error generating narration: {str(e)}")
@@ -97,12 +132,202 @@ def format_story(story):
     
     return '\n\n'.join(paragraphs)
 
+def calculate_sentence_duration(sentence: str, speed_factor: float = 1.0) -> float:
+    """Calculate approximate duration for each sentence based on word count"""
+    words = len(sentence.split())
+    # Average reading speed (words per second) adjusted by speed factor
+    base_speed = 2.5  # words per second
+    return (words / base_speed) * speed_factor
+
+def get_relevant_image(sentence: str) -> str:
+    """Get relevant image URL from Pexels based on sentence context"""
+    try:
+        # Extract key terms from sentence
+        keywords = sentence.lower()
+        for remove in ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to']:
+            keywords = keywords.replace(f' {remove} ', ' ')
+        
+        # Search Pexels
+        response = requests.get(
+            PEXELS_API_URL,
+            params={
+                'query': keywords,
+                'per_page': 1,
+                'orientation': 'landscape'
+            },
+            headers={
+                'Authorization': PEXELS_API_KEY
+            }
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data['photos']:
+                return data['photos'][0]['src']['large']
+        
+        # Fallback to abstract placeholder if no image found
+        return f"https://picsum.photos/800/400?random={quote(keywords)}"
+    except Exception as e:
+        logger.error(f"Error fetching image: {str(e)}")
+        return "https://picsum.photos/800/400"
+
+def get_enhanced_animation_css() -> str:
+    """Return enhanced CSS for animations"""
+    return """
+        <style>
+        @keyframes fadeSlideIn {
+            0% { opacity: 0; transform: translateY(30px) scale(0.9); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        
+        @keyframes imageZoom {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        @keyframes textGlow {
+            0% { text-shadow: 0 0 0px rgba(255,255,255,0); }
+            50% { text-shadow: 0 0 20px rgba(255,255,255,0.5); }
+            100% { text-shadow: 0 0 0px rgba(255,255,255,0); }
+        }
+        
+        .story-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background: rgba(0,0,0,0.02);
+            border-radius: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        
+        .sentence {
+            font-size: 28px;
+            line-height: 1.6;
+            text-align: center;
+            padding: 30px;
+            margin: 20px 0;
+            background: linear-gradient(145deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            animation: fadeSlideIn 1s ease-out, textGlow 3s ease-in-out infinite;
+        }
+        
+        .image-container {
+            position: relative;
+            overflow: hidden;
+            border-radius: 20px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+            transform-origin: center;
+            animation: fadeSlideIn 1s ease-out, imageZoom 5s ease-in-out infinite;
+        }
+        
+        .image-container img {
+            width: 100%;
+            height: auto;
+            transition: transform 0.3s ease;
+        }
+        
+        .image-container:hover img {
+            transform: scale(1.05);
+        }
+        </style>
+    """
+
+def setup_ffmpeg():
+    """Download and setup ffmpeg and ffprobe"""
+    tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools')
+    os.makedirs(tools_dir, exist_ok=True)
+
+    ffmpeg_path = os.path.join(tools_dir, 'ffmpeg.exe')
+    ffprobe_path = os.path.join(tools_dir, 'ffprobe.exe')
+
+    # Skip if already installed
+    if os.path.exists(ffmpeg_path) and os.path.exists(ffprobe_path):
+        os.environ["PATH"] = os.path.dirname(ffmpeg_path) + os.pathsep + os.environ["PATH"]
+        return True
+
+    try:
+        # Download URL
+        url = "https://github.com/GyanD/codexffmpeg/releases/download/6.0/ffmpeg-6.0-full_build.zip"
+        zip_path = os.path.join(tools_dir, 'ffmpeg.zip')
+
+        print("Downloading ffmpeg...")
+        urllib.request.urlretrieve(url, zip_path)
+
+        print("Extracting ffmpeg...")
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            ffmpeg_files = [f for f in zip_ref.namelist() if f.endswith(('ffmpeg.exe', 'ffprobe.exe'))]
+            for file in ffmpeg_files:
+                zip_ref.extract(file, tools_dir)
+                final_path = ffmpeg_path if file.endswith('ffmpeg.exe') else ffprobe_path
+                shutil.move(os.path.join(tools_dir, file), final_path)
+
+        # Cleanup
+        os.remove(zip_path)
+        for root, dirs, files in os.walk(tools_dir, topdown=False):
+            for name in dirs:
+                try:
+                    os.rmdir(os.path.join(root, name))
+                except OSError:
+                    pass
+
+        # Add to PATH
+        os.environ["PATH"] = os.path.dirname(ffmpeg_path) + os.pathsep + os.environ["PATH"]
+        return True
+
+    except Exception as e:
+        print(f"Error setting up ffmpeg: {e}")
+        return False
+
+def display_interactive_story(story: str, audio_file: str):
+    """Display story interactively with synchronized animations"""
+    try:
+        # Verify audio file exists and is readable
+        if not os.path.exists(audio_file):
+            raise FileNotFoundError(f"Audio file not found: {audio_file}")
+
+        # Create story container
+        st.markdown(get_enhanced_animation_css(), unsafe_allow_html=True)
+        story_container = st.empty()
+        
+        # Display audio player first and wait for it to be ready
+        audio_placeholder = st.empty()
+        with open(audio_file, 'rb') as f:
+            audio_bytes = f.read()
+            audio_placeholder.audio(audio_bytes, format='audio/mp3')
+
+        # Split story into sentences
+        sentences = [s.strip() + '.' for s in story.split('.') if s.strip()]
+        
+        # Display sentences with images
+        for sentence in sentences:
+            image_url = get_relevant_image(sentence)
+            html = f"""
+            <div class="story-container">
+                <div class="sentence">{sentence}</div>
+                <div class="image-container">
+                    <img src="{image_url}" alt="Story visualization">
+                </div>
+            </div>
+            """
+            story_container.markdown(html, unsafe_allow_html=True)
+            time.sleep(3)  # Fixed delay per sentence
+
+    except Exception as e:
+        st.error(f"Error displaying story: {str(e)}")
+        st.write(story)  # Fallback to simple text display
+
 def main():
     # Initialize session state
     if 'story' not in st.session_state:
         st.session_state.story = None
     if 'audio_file' not in st.session_state:
         st.session_state.audio_file = None
+    if 'should_play' not in st.session_state:
+        st.session_state.should_play = False
+    if 'narration_settings' not in st.session_state:
+        st.session_state.narration_settings = None
 
     st.title("Story Generator (with Narration)")
     
@@ -125,58 +350,92 @@ def main():
     with col2:
         story_length = st.selectbox(
             "Select story length:",
-            ["Short (200 words)", "Medium (400 words)", "Long (600 words)"]
+            ["Short (200 words)", "Medium (500 words)", "Long (1000 words)"]
         )
-        length = story_length.split()[0].lower()
+        # Extract word count from selection
+        length = int(story_length.split('(')[1].split()[0])
+    
+    # Image upload
+    uploaded_image = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
     
     # Voice settings in sidebar
     st.sidebar.markdown("### Narration Settings")
-    voice_settings = {}
-    voice_settings['lang'] = st.sidebar.selectbox("Select Language:", 
-                                                 ["en-US", "en-GB", "en-AU", "en-IN"])
-    voice_settings['slow'] = st.sidebar.checkbox("Slow Mode", False)
+    
+    voice_type = st.sidebar.selectbox(
+        "Select Voice Type:",
+        [
+            "US English (com)",
+            "UK English (co.uk)", 
+            "Indian English (co.in)",
+            "Australian English (com.au)"
+        ]
+    )
+    
+    # Simplified accent mapping
+    accent = voice_type.split('(')[1].strip(')')
+    
+    speed = st.sidebar.select_slider(
+        "Speech Speed",
+        options=['slow', 'normal', 'fast'],
+        value='normal'
+    )
 
-    # If settings changed and we have a story, regenerate narration
-    if st.session_state.story and st.sidebar.button("Update Narration"):
-        with st.spinner('Updating narration...'):
-            try:
-                if st.session_state.audio_file:
-                    os.unlink(st.session_state.audio_file)
-                st.session_state.audio_file = generate_narration(
-                    st.session_state.story,
-                    voice_settings
-                )
-                st.experimental_rerun()
-            except Exception as e:
-                st.error(f"Failed to update narration: {str(e)}")
+    # Store current voice settings
+    speed_factors = {'slow': 1.5, 'normal': 1.0, 'fast': 0.7}
+    voice_settings = {
+        'accent': accent,
+        'speed': speed,
+        'speed_factor': speed_factors[speed]
+    }
 
+    # Main content area
     col1, col2 = st.columns([2, 1])
     with col1:
         story_button = st.button("Generate Story")
     with col2:
-        auto_narrate = st.checkbox("Auto-Narrate", True)
-    
-    # Display existing story and audio if available
+        # Only show play button if audio exists
+        if (st.session_state.audio_file and 
+            os.path.exists(st.session_state.audio_file)):
+            try:
+                # Read audio file once
+                with open(st.session_state.audio_file, 'rb') as audio_file:
+                    audio_bytes = audio_file.read()
+                st.audio(audio_bytes, format='audio/mp3')
+            except Exception as e:
+                st.error(f"Error loading audio: {str(e)}")
+
+    # Display existing story
     if st.session_state.story:
         st.write("### Your Story:")
         st.write(st.session_state.story)
-        
-        if st.session_state.audio_file and os.path.exists(st.session_state.audio_file):
-            st.write("### Story Narration")
-            st.audio(st.session_state.audio_file, format='audio/mp3')
-    
+
+    # Handle story generation
     if story_button:
+        if uploaded_image is None:
+            st.error("Please upload an image to generate a story.")
+            return
+        
         with st.spinner('Generating story...'):
             try:
+                # Save current narration settings to compare later
+                st.session_state.narration_settings = {
+                    'accent': accent,
+                    'speed': speed
+                }
+                
+                # Process uploaded image
+                image = Image.open(uploaded_image)
+                image_str = process_image(image)
+                
                 # Make request
-                base_url = colab_url.rstrip('/').split('/generate_story')[0]
                 response = requests.post(
-                    f"{base_url}/generate_story",
+                    f"{colab_url}/generate_story",
                     json={
+                        'image': image_str,
                         'genre': genre,
-                        'length': length
+                        'length': length  # Pass the actual word count
                     },
-                    timeout=120,
+                    timeout=300,  # Increase timeout to 300 seconds
                     verify=False
                 )
                 
@@ -185,34 +444,65 @@ def main():
                     if result.get('success'):
                         story = result.get('story')
                         if story:
-                            # Store formatted story in session state
                             st.session_state.story = format_story(story)
                             
-                            # Clean up old audio if exists
-                            if st.session_state.audio_file and os.path.exists(st.session_state.audio_file):
-                                os.unlink(st.session_state.audio_file)
+                            # Generate new narration
+                            with st.spinner('Generating narration...'):
+                                try:
+                                    # Clean up old audio file
+                                    if st.session_state.audio_file and os.path.exists(st.session_state.audio_file):
+                                        os.unlink(st.session_state.audio_file)
+
+                                    # Generate new audio
+                                    st.session_state.audio_file = generate_narration(
+                                        st.session_state.story,
+                                        voice_settings
+                                    )
+
+                                    # Display generated audio
+                                    if os.path.exists(st.session_state.audio_file):
+                                        with open(st.session_state.audio_file, 'rb') as audio_file:
+                                            audio_bytes = audio_file.read()
+                                            st.audio(audio_bytes, format='audio/mp3')
+                                            st.session_state.should_play = True
+                                    else:
+                                        st.error("Failed to generate audio file")
+                                    
+                                except Exception as e:
+                                    st.error(f"Failed to generate narration: {str(e)}")
+                                    st.session_state.audio_file = None
+
+                            # Display the story
+                            st.write("### Your Story:")
+                            st.write(st.session_state.story)
                             
-                            # Generate new narration if auto-narrate is enabled
-                            if auto_narrate:
-                                with st.spinner('Generating narration...'):
-                                    try:
-                                        st.session_state.audio_file = generate_narration(
-                                            st.session_state.story,
-                                            voice_settings
-                                        )
-                                    except Exception as e:
-                                        st.error(f"Failed to generate narration: {str(e)}")
-                            
-                            st.experimental_rerun()
+                            # No rerun needed here as we want to display immediately
                         else:
                             st.error("No story was generated")
                     else:
                         st.error(f"Error: {result.get('error', 'Unknown error')}")
                 else:
                     st.error(f"Failed to generate story: {response.text}")
-                    
             except Exception as e:
                 st.error(f"Error: {str(e)}")
 
+    # Separate audio player for existing audio
+    if st.session_state.audio_file and os.path.exists(st.session_state.audio_file):
+        st.sidebar.markdown("### Story Narration")
+        with open(st.session_state.audio_file, 'rb') as audio_file:
+            audio_bytes = audio_file.read()
+            st.sidebar.audio(audio_bytes, format='audio/mp3')
+
+    # Display story without animation if audio isn't playing
+    if st.session_state.story and not st.session_state.should_play:
+        st.write("### Your Story:")
+        st.write(st.session_state.story)
+    # Only use interactive display when audio should play
+    elif st.session_state.story and st.session_state.audio_file and st.session_state.should_play:
+        display_interactive_story(st.session_state.story, st.session_state.audio_file)
+        st.session_state.should_play = False  # Reset play flag after display
+
 if __name__ == '__main__':
+    if not setup_ffmpeg():
+        st.error("Failed to setup audio processing. Some features may not work.")
     main()

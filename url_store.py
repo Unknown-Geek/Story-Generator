@@ -63,6 +63,20 @@ def verify_saved_url():
         print(f"DEBUG: Error verifying URL: {str(e)}")
         return False
 
+def is_url_file_valid():
+    try:
+        if not os.path.exists(URL_FILE):
+            return False
+        with open(URL_FILE, 'r') as f:
+            data = json.load(f)
+            url = data.get('url')
+            if url and isinstance(url, str) and url.startswith('http'):
+                return True
+        return False
+    except Exception as e:
+        print(f"DEBUG: Error checking URL file: {str(e)}")
+        return False
+
 def debug_url_file():
     try:
         if not os.path.exists(URL_FILE):
