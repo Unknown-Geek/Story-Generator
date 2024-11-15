@@ -71,7 +71,7 @@ def process_image(image):
         max_size = (1024, 1024)
         if img_copy.size[0] > max_size[0] or img_copy.size[1] > max_size[1]:
             logger.debug(f"Resizing image from {img_copy.size}")
-            img_copy.thumbnail(max_size, Image.Resampling.LANCZOS)
+            img_copy.thumbnail(max_size, Image.LANCZOS)
             
         # Save to buffer with specific format
         buffered = io.BytesIO()
@@ -93,10 +93,11 @@ def generate_narration(text, voice_settings):
         temp_audio = os.path.join(temp_dir, 'narration.mp3')
         
         # Generate the audio
+        tld = voice_settings['accent']
         tts = gTTS(
             text=text, 
             lang='en',
-            tld=voice_settings['accent'],
+            tld=tld,
             slow=(voice_settings['speed'] == 'slow')
         )
         
@@ -135,9 +136,13 @@ def format_story(story):
 def calculate_sentence_duration(sentence: str, speed_factor: float = 1.0) -> float:
     """Calculate approximate duration for each sentence based on word count"""
     words = len(sentence.split())
-    # Average reading speed (words per second) adjusted by speed factor
-    base_speed = 2.5  # words per second
-    return (words / base_speed) * speed_factor
+    # Average reading speed adjusted by speed factor (words per second)
+    base_speeds = {
+        'slow': 1.5,    # 1.5 words per second
+        'normal': 2.5,  # 2.5 words per second
+        'fast': 3.5     # 3.5 words per second
+    }
+    return (words / base_speeds[speed_factor]) + 0.5  # Add 0.5s padding between sentences
 
 def get_relevant_image(sentence: str) -> str:
     """Get relevant image URL from Pexels based on sentence context"""
@@ -234,39 +239,50 @@ def get_enhanced_animation_css() -> str:
         </style>
     """
 
-def display_interactive_story(story: str, audio_file: str):
+def display_interactive_story(story: str, audio_file: str, voice_settings: dict):
     """Display story interactively with synchronized animations"""
     try:
-        # Verify audio file exists and is readable
         if not os.path.exists(audio_file):
             raise FileNotFoundError(f"Audio file not found: {audio_file}")
 
-        # Create story container
+        # Create containers
         st.markdown(get_enhanced_animation_css(), unsafe_allow_html=True)
         story_container = st.empty()
-        
-        # Display audio player first and wait for it to be ready
         audio_placeholder = st.empty()
+
+        # Display audio player and get duration
         with open(audio_file, 'rb') as f:
             audio_bytes = f.read()
             audio_placeholder.audio(audio_bytes, format='audio/mp3')
 
-        # Split story into sentences
+        # Split story and calculate timing
         sentences = [s.strip() + '.' for s in story.split('.') if s.strip()]
-        
-        # Display sentences with images
-        for sentence in sentences:
-            image_url = get_relevant_image(sentence)
+        total_duration = 0
+
+        # Pre-fetch all images to avoid delays
+        images = {}
+        with st.spinner('Loading images...'):
+            for sentence in sentences:
+                images[sentence] = get_relevant_image(sentence)
+
+        # Display sentences with synchronized timing
+        for i, sentence in enumerate(sentences):
+            # Calculate display duration for this sentence
+            duration = calculate_sentence_duration(sentence, voice_settings['speed'])
+            total_duration += duration
+
             html = f"""
             <div class="story-container">
                 <div class="sentence">{sentence}</div>
                 <div class="image-container">
-                    <img src="{image_url}" alt="Story visualization">
+                    <img src="{images[sentence]}" alt="Story visualization">
                 </div>
             </div>
             """
             story_container.markdown(html, unsafe_allow_html=True)
-            time.sleep(3)  # Fixed delay per sentence
+            
+            # Sleep for calculated duration
+            time.sleep(duration)
 
     except Exception as e:
         st.error(f"Error displaying story: {str(e)}")
@@ -453,7 +469,11 @@ def main():
         st.write(st.session_state.story)
     # Only use interactive display when audio should play
     elif st.session_state.story and st.session_state.audio_file and st.session_state.should_play:
-        display_interactive_story(st.session_state.story, st.session_state.audio_file)
+        display_interactive_story(
+            st.session_state.story, 
+            st.session_state.audio_file,
+            voice_settings
+        )
         st.session_state.should_play = False  # Reset play flag after display
 
 if __name__ == '__main__':

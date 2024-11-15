@@ -21,16 +21,23 @@ logger = logging.getLogger(__name__)
 # Configure Gemini API
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# Create the model
+# Create the models
 generation_config = {
     "temperature": 1,
     "top_p": 0.95,
     "top_k": 40,
     "max_output_tokens": 8192,
-    "response_mime_type": "text/plain",
 }
-model = genai.GenerativeModel(
+
+# Use gemini-1.5-pro for vision and text processing
+vision_model = genai.GenerativeModel(
     model_name="gemini-1.5-pro",
+    generation_config=generation_config,
+)
+
+# Use gemini-pro for story generation
+story_model = genai.GenerativeModel(
+    model_name="gemini-pro",
     generation_config=generation_config,
 )
 
@@ -47,20 +54,12 @@ def set_colab_url():
     colab_url = data.get('url')
     return jsonify({'success': True})
 
-def upload_to_gemini(image_bytes, mime_type="image/jpeg"):
-    """Uploads the given image bytes to Gemini."""
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpeg") as temp_file:
-        temp_file.write(image_bytes)
-        temp_file_path = temp_file.name
-    file = genai.upload_file(temp_file_path, mime_type=mime_type)
-    os.remove(temp_file_path)
-    return file
-
 @app.route('/generate_story', methods=['POST'])
 def generate_story():
     try:
         data = request.get_json()
         if not data:
+            logger.debug("No data received in request")
             return jsonify({'success': False, 'error': 'No data received'}), 400
         
         image_data = data.get('image', '')
@@ -68,53 +67,63 @@ def generate_story():
             image_data = image_data.split('base64,')[-1]
         
         genre = data.get('genre')
+        word_count = data.get('length', 200)  # Get word count from request, default to 200
         
         if not image_data or not genre:
+            logger.debug("Missing image or genre in request data")
             return jsonify({'success': False, 'error': 'Missing image or genre'}), 400
         
         try:
+            logger.debug("Processing image data")
             # Process image with explicit copying
             image_bytes = base64.b64decode(image_data)
             image = Image.open(io.BytesIO(image_bytes))
+            logger.debug(f"Image mode: {image.mode}")
             
             # Handle image conversion safely
             if image.mode in ('RGBA', 'LA'):
                 background = Image.new('RGB', image.size, (255, 255, 255))
                 background.paste(image, mask=image.split()[-1])
                 image_copy = background
+                logger.debug("Converted image from RGBA/LA to RGB")
             else:
                 image_copy = image.convert('RGB')
+                logger.debug("Converted image to RGB")
             
             # Resize if needed
             max_size = (1024, 1024)
             if image_copy.size[0] > max_size[0] or image_copy.size[1] > max_size[1]:
-                image_copy.thumbnail(max_size, Image.Resampling.LANCZOS)
+                logger.debug(f"Resizing image from {image_copy.size}")
+                image_copy.thumbnail(max_size, Image.LANCZOS)
             
-            buffered = io.BytesIO()
-            image_copy.save(buffered, format="JPEG", quality=85)
-            processed_image = buffered.getvalue()
+            # Generate image description using vision model
+            image_prompt = "Describe what you see in this image concisely."
+            image_response = vision_model.generate_content([image_prompt, image_copy])
+            image_description = image_response.text
+            logger.debug(f"Image description: {image_description}")
             
-            # Upload image to Gemini
-            gemini_file = upload_to_gemini(processed_image)
+            # Generate story using the text model
+            story_prompt = f"""Write a {genre} story appropriate for all ages. Base it on this scene: {image_description}
+            Requirements:
+            - Length: approximately {word_count} words
+            - Age-appropriate content
+            - Clear narrative structure
+            - Engaging and descriptive language
+            - Positive message or moral"""
             
-            # Generate story using Gemini
-            prompt = f"Generate a {genre} story based on the objects in the provided image."
-            response = model.generate_content([
-                prompt,
-                "Image: ",
-                gemini_file,
-                "Story: "
-            ])
+            story_response = story_model.generate_content(story_prompt)
             
-            if response.text:
+            if story_response.text:
+                logger.debug("Story generated successfully")
                 return jsonify({
                     'success': True,
-                    'story': response.text
+                    'story': story_response.text
                 })
             else:
+                logger.debug("Story generation failed")
                 return jsonify({
                     'success': False, 
-                    'error': 'Story generation failed. Please try again with different parameters.'
+                    'error': 'Story generation failed. Please try again.'
                 }), 500
             
         except Exception as img_error:
