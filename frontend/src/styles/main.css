@@ -1,35 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Replace the imports with proper Tailwind directives */
+/* Remove these lines:
 @import 'tailwindcss/base';
 @import 'tailwindcss/components';
 @import 'tailwindcss/utilities';
+*/
+
+:root {
+  --neon-blue: #00f3ff;
+  --neon-purple: #8000ff;
+  --dark-bg: #0a0a1f;
+  --mesh-1: rgba(0, 243, 255, 0.1);
+  --mesh-2: rgba(128, 0, 255, 0.1);
+  --glow-shadow: 0 0 20px rgba(0, 243, 255, 0.3);
+  --text-glow: 0 0 15px rgba(0, 243, 255, 0.7);
+  --glow-strength: 0 0 40px rgba(0, 243, 255, 0.4);
+  --text-glow-strength: 0 0 25px rgba(0, 243, 255, 0.5);
+  --border-glow: rgba(0, 243, 255, 0.4);
+}
 
 body {
-  background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
+  background: radial-gradient(circle at 50% 50%, var(--dark-bg), #000510);
   color: #e0e0e0;
-  font-family: 'Roboto', sans-serif;
+  font-family: "Inter", sans-serif;
 }
 
 .story-container {
   max-width: 1000px;
   margin: 0 auto;
   padding: 20px;
-  background: rgba(0, 0, 0, 0.5);
+  background: linear-gradient(
+    135deg,
+    rgba(10, 10, 31, 0.8),
+    rgba(0, 5, 16, 0.9)
+  );
   border-radius: 20px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+  border: 2px solid var(--border-glow);
+  box-shadow: var(--glow-strength);
+  filter: drop-shadow(0 0 20px rgba(0, 243, 255, 0.2));
   backdrop-filter: blur(10px);
 }
 
 .sentence {
-  font-size: 28px;
+  font-size: 25px; /* reduced from 28px */
   line-height: 1.6;
   text-align: center;
   padding: 30px;
   margin: 20px 0;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
+  background: linear-gradient(170deg, var(--mesh-1) 0%, var(--mesh-2) 100%);
   border-radius: 15px;
+  border: 2px solid var(--border-glow);
+  box-shadow: var(--glow-strength), inset 0 0 30px rgba(0, 243, 255, 0.2);
   backdrop-filter: blur(10px);
   animation: fadeSlideIn 1s ease-out, textGlow 3s ease-in-out infinite;
   color: #ffffff;
-  text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+  text-shadow: var(--text-glow-strength);
 }
 
 .image-container {
@@ -53,10 +81,11 @@ body {
 
 .settings-panel {
   padding: 20px;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(10, 10, 31, 0.8);
   border-radius: 10px;
+  border: 2px solid var(--border-glow);
   margin-bottom: 20px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--glow-strength);
   backdrop-filter: blur(10px);
 }
 
@@ -73,9 +102,14 @@ body {
 .custom-audio-player {
   width: 100%;
   padding: 1rem;
-  background: rgba(0, 0, 0, 0.5);
+  background: linear-gradient(
+    170deg,
+    rgba(10, 10, 31, 0.9),
+    rgba(0, 5, 16, 0.95)
+  );
   backdrop-filter: blur(10px);
   border-radius: 12px;
+  border: 1px solid rgba(0, 243, 255, 0.1);
   margin: 1rem 0;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
 }
@@ -91,18 +125,20 @@ body {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.2);
+  background: linear-gradient(135deg, var(--neon-blue), var(--neon-purple));
   border: none;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
+  box-shadow: 0 0 25px rgba(0, 243, 255, 0.4);
 }
 
 .play-button:hover {
   background: rgba(255, 255, 255, 0.3);
   transform: scale(1.05);
+  box-shadow: 0 0 30px rgba(0, 243, 255, 0.6);
 }
 
 .play-button svg {
@@ -128,9 +164,10 @@ body {
 
 .progress-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  background: linear-gradient(90deg, var(--neon-blue), var(--neon-purple));
   border-radius: 3px;
   transition: width 0.1s linear;
+  box-shadow: 0 0 15px rgba(0, 243, 255, 0.6);
 }
 
 .progress-bar-handle {
@@ -143,4 +180,200 @@ body {
   transform: translate(-50%, -50%);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   cursor: pointer;
+}
+
+.story-collapsible {
+  margin: 20px 0;
+}
+
+.story-collapsible-header {
+  background: linear-gradient(
+    170deg,
+    rgba(10, 10, 31, 0.9),
+    rgba(0, 5, 16, 0.95)
+  );
+  padding: 15px;
+  border-radius: 12px;
+  cursor: pointer;
+  border: 1px solid rgba(0, 243, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all 0.3s ease;
+}
+
+.story-collapsible-header:hover {
+  border-color: rgba(0, 243, 255, 0.4);
+  box-shadow: 0 0 20px rgba(0, 243, 255, 0.2);
+}
+
+.story-collapsible-content {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: all 0.3s ease-out;
+  pointer-events: none;
+}
+
+.story-collapsible-content.expanded {
+  max-height: 2000px;
+  opacity: 1;
+  transition: all 0.5s ease-in;
+  padding: 30px 0;
+  padding-left: 50px;
+  padding-right: 50px;
+}
+
+.story-collapsible-content .sentence {
+  font-size: 21px;
+  line-height: 1.5;
+}
+
+.cyber-player {
+  background: linear-gradient(
+    170deg,
+    rgba(10, 10, 31, 0.95),
+    rgba(0, 5, 16, 0.98)
+  );
+  border: 2px solid rgba(0, 243, 255, 0.2);
+  border-radius: 15px;
+  padding: 2rem;
+  margin: 2rem 0;
+  box-shadow: 0 0 30px rgba(0, 243, 255, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.current-line {
+  font-size: 1.5rem;
+  line-height: 1.5;
+  padding: 1.5rem;
+  margin: 1rem 0;
+  background: linear-gradient(
+    170deg,
+    rgba(0, 243, 255, 0.1),
+    rgba(128, 0, 255, 0.1)
+  );
+  border: 2px solid var(--border-glow);
+  border-radius: 10px;
+  color: var(--neon-blue);
+  text-shadow: var(--text-glow-strength);
+  box-shadow: var(--glow-strength), inset 0 0 30px rgba(0, 243, 255, 0.2);
+  animation: textPulse 2s infinite;
+}
+
+@keyframes textPulse {
+  0% {
+    text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+  }
+  50% {
+    text-shadow: 0 0 20px rgba(0, 243, 255, 0.8);
+  }
+  100% {
+    text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+  }
+}
+
+@keyframes textGlow {
+  0% {
+    text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+  }
+  50% {
+    text-shadow: 0 0 30px rgba(0, 243, 255, 0.9);
+  }
+  100% {
+    text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+  }
+}
+
+@keyframes enhancedGlow {
+  0% {
+    box-shadow: var(--glow-strength);
+    border-color: rgba(0, 243, 255, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 60px rgba(0, 243, 255, 0.6);
+    border-color: rgba(0, 243, 255, 0.8);
+  }
+  100% {
+    box-shadow: var(--glow-strength);
+    border-color: rgba(0, 243, 255, 0.4);
+  }
+}
+
+@layer components {
+  /* Add missing animation keyframes */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* Define base component styles */
+  .glow-effect {
+    @apply transition-all duration-300;
+    animation: enhancedGlow 2s infinite;
+    filter: brightness(1.2);
+  }
+
+  /* Update hover effects */
+  .story-container:hover,
+  .sentence:hover,
+  .settings-panel:hover,
+  .cyber-player:hover {
+    @apply glow-effect;
+  }
+}
+
+/* Add this to your existing CSS */
+.title-glow {
+  text-shadow: 0 0 5px rgba(0, 243, 255, 0.3);
+  transition: text-shadow 0.3s ease;
+}
+
+.title-glow:hover {
+  text-shadow: 0 0 8px rgba(0, 243, 255, 0.4);
+}
+
+/* Add styles for the stop motion player */
+.stop-motion-container {
+  box-shadow: var(--glow-strength);
+  border: 2px solid var(--border-glow);
+  transition: all 0.3s ease;
+}
+
+.stop-motion-container img {
+  transition: opacity 0.3s ease;
+}
+
+.stop-motion-container {
+  position: relative;
+  overflow: hidden;
+  background: rgba(10, 10, 31, 0.8);
+  border: 2px solid var(--border-glow);
+  margin-bottom: 2rem;
+  transition: all 0.3s ease;
+}
+
+.stop-motion-container img {
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.stop-motion-container:hover {
+  transform: scale(1.02);
+  box-shadow: var(--glow-shadow);
 }
