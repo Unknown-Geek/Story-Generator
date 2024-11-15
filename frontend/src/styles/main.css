@@ -2,13 +2,20 @@
 @import 'tailwindcss/components';
 @import 'tailwindcss/utilities';
 
+body {
+  background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
+  color: #e0e0e0;
+  font-family: 'Roboto', sans-serif;
+}
+
 .story-container {
   max-width: 1000px;
   margin: 0 auto;
   padding: 20px;
-  background: rgba(0,0,0,0.02);
+  background: rgba(0, 0, 0, 0.5);
   border-radius: 20px;
-  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
 }
 
 .sentence {
@@ -17,17 +24,19 @@
   text-align: center;
   padding: 30px;
   margin: 20px 0;
-  background: linear-gradient(145deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
   border-radius: 15px;
   backdrop-filter: blur(10px);
   animation: fadeSlideIn 1s ease-out, textGlow 3s ease-in-out infinite;
+  color: #ffffff;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
 }
 
 .image-container {
   position: relative;
   overflow: hidden;
   border-radius: 20px;
-  box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
   transform-origin: center;
   animation: fadeSlideIn 1s ease-out, imageZoom 5s ease-in-out infinite;
 }
@@ -44,32 +53,31 @@
 
 .settings-panel {
   padding: 20px;
-  background: #f5f5f5;
+  background: rgba(0, 0, 0, 0.5);
   border-radius: 10px;
   margin-bottom: 20px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
 }
 
 .loading-spinner {
   display: inline-block;
   width: 50px;
   height: 50px;
-  border: 3px solid rgba(0,0,0,.1);
+  border: 3px solid rgba(0, 0, 0, 0.1);
   border-radius: 50%;
-  border-top-color: #000;
+  border-top-color: #3498db;
   animation: spin 1s ease-in-out infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 .custom-audio-player {
   width: 100%;
   padding: 1rem;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(10px);
   border-radius: 12px;
   margin: 1rem 0;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
 }
 
 .audio-controls {
