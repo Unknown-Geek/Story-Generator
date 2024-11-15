@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from pyngrok import ngrok
+from pyngrok import ngrok, conf
 import requests
 import io
 import base64
@@ -47,6 +47,40 @@ logging.captureWarnings(True)
 # Configure Gemini API
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
+# Define age-appropriate themes for each genre
+GENRE_THEMES = {
+    'fantasy': 'magical adventures, friendly creatures, and noble quests',
+    'adventure': 'exploration, discovery, and overcoming challenges',
+    'romance': 'friendship, kindness, and family relationships',
+    'horror': 'mild mystery, spooky (but not scary) situations, and courage',
+    'mystery': 'solving puzzles, helping others, and uncovering secrets',
+    'moral story': 'learning life lessons, making good choices, and personal growth'
+}
+
+# Configure safety settings
+SAFETY_SETTINGS = [
+    {
+        "category": "HARM_CATEGORY_DANGEROUS",
+        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+    },
+    {
+        "category": "HARM_CATEGORY_HARASSMENT",
+        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+    },
+    {
+        "category": "HARM_CATEGORY_HATE_SPEECH",
+        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+    },
+    {
+        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+    },
+    {
+        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+    },
+]
+
 # Create generation config
 generation_config = {
     "temperature": 0.7,
@@ -55,12 +89,13 @@ generation_config = {
     "max_output_tokens": 8192,
 }
 
-# Initialize models
-vision_model = genai.GenerativeModel('gemini-1.5-pro', generation_config=generation_config)
-story_model = genai.GenerativeModel('gemini-pro', generation_config=generation_config)
-
-# Configure ngrok with auth token
-ngrok.set_auth_token(os.getenv('NGROK_AUTH_TOKEN'))
+# Initialize models with safety settings
+vision_model = genai.GenerativeModel('gemini-1.5-pro', 
+                                   generation_config=generation_config,
+                                   safety_settings=SAFETY_SETTINGS)
+story_model = genai.GenerativeModel('gemini-pro', 
+                                  generation_config=generation_config,
+                                  safety_settings=SAFETY_SETTINGS)
 
 app = Flask(__name__)
 CORS(app)
@@ -77,40 +112,65 @@ def generate_story():
         genre = data.get('genre', 'fantasy').lower()
         word_count = data.get('length', 200)
         
-        if 'base64,' in image_data:
-            image_data = image_data.split('base64,')[1]
-        
         if not image_data:
             return jsonify({'success': False, 'error': 'No image data provided'}), 400
         
         try:
-            # Process image
+            logger.debug("Starting image processing")
+            
+            # Decode base64 to bytes
             image_bytes = base64.b64decode(image_data)
-            image = Image.open(io.BytesIO(image_bytes))
-            logger.debug(f"Image mode: {image.mode}")
+            logger.debug(f"Decoded image bytes: {len(image_bytes)} bytes")
             
-            # Handle image conversion
+            # Create a new BytesIO object and write the bytes
+            image_buffer = io.BytesIO(image_bytes)
+            image_buffer.seek(0)
+            
+            # Open the image from the buffer
+            image = Image.open(image_buffer)
+            logger.debug(f"Opened image: mode={image.mode}, size={image.size}")
+            
+            # Create a new RGB image and paste the original onto it
             if image.mode in ('RGBA', 'LA'):
-                background = Image.new('RGB', image.size, (255, 255, 255))
-                background.paste(image, mask=image.split()[-1])
-                image = background
+                new_image = Image.new('RGB', image.size, (255, 255, 255))
+                if image.mode == 'RGBA':
+                    new_image.paste(image, mask=image.split()[3])
+                else:
+                    new_image.paste(image, mask=image.split()[1])
+                image = new_image
+                logger.debug("Converted image to RGB from RGBA/LA")
             elif image.mode != 'RGB':
-                image = image.convert('RGB')
+                new_image = Image.new('RGB', image.size, (255, 255, 255))
+                new_image.paste(image)
+                image = new_image
+                logger.debug("Converted image to RGB from other mode")
             
-            # Generate image description
-            image_prompt = "Describe what you see in this image concisely."
+            # Resize if needed while maintaining aspect ratio
+            max_size = (1024, 1024)
+            if image.size[0] > max_size[0] or image.size[1] > max_size[1]:
+                image.thumbnail(max_size, Image.Resampling.LANCZOS)
+                logger.debug(f"Resized image to {image.size}")
+
+            logger.debug(f"Image processed successfully: {image.mode} {image.size}")
+            
+            # Updated prompt generation
+            image_prompt = "Describe the objects and scene in this image with detail and context."
             image_response = vision_model.generate_content([image_prompt, image])
             image_description = image_response.text
             logger.debug(f"Image description: {image_description}")
             
-            # Generate story
-            story_prompt = f"""Write a {genre} story appropriate for all ages. Base it on this scene: {image_description}
+            # Enhanced story prompt using genre themes
+            story_prompt = f"""Write a family-friendly {genre} story about {GENRE_THEMES.get(genre, 'adventure and discovery')}.
             Requirements:
-            - Length: approximately {word_count} words
-            - Age-appropriate content
-            - Clear narrative structure
-            - Engaging and descriptive language
-            - Positive message or moral"""
+            - Exactly {word_count} words (important!)
+            - Age-appropriate content (suitable for ages 8-12)
+            - No violence, scary elements, or adult themes
+            - Focus on positive messages and character growth
+            - Include descriptive but simple language
+            - Clear beginning, middle, and end structure
+            - Based on this scene: {image_description}
+
+            Create an engaging story that teaches good values while entertaining young readers."""
             
             story_response = story_model.generate_content(story_prompt)
             
@@ -127,14 +187,34 @@ def generate_story():
         logger.error(f"Server error: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+def setup_ngrok():
+    """Setup ngrok with proper error handling"""
+    try:
+        # Kill any existing ngrok processes first
+        ngrok.kill()
+        
+        # Set default config path
+        conf.get_default().config_path = os.path.join(os.path.expanduser("~"), ".ngrok2", "ngrok.yml")
+        
+        # Configure ngrok
+        ngrok.set_auth_token(os.getenv('NGROK_AUTH_TOKEN'))
+        
+        # Start new tunnel
+        public_url = ngrok.connect(5000)
+        print(f'\nNgrok tunnel established at: {public_url}')
+        print(f'Story generation endpoint: {public_url}/generate_story\n')
+        return public_url
+    except Exception as e:
+        print(f"Error setting up ngrok: {str(e)}")
+        print("Starting server without ngrok tunnel...")
+        return None
+
 if __name__ == '__main__':
     try:
-        # Start ngrok tunnel
-        public_url = ngrok.connect(5000)
-        logger.info(f'Ngrok tunnel established at: {public_url}')
-        logger.info(f'Story generation endpoint: {public_url}/generate_story')
+        # Setup ngrok
+        public_url = setup_ngrok()
         
         # Start Flask app
         app.run(port=5000)
     except Exception as e:
-        logger.error(f"Error starting server: {str(e)}")
+        print(f"Error starting server: {str(e)}")
