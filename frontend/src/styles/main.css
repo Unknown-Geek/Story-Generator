@@ -24,10 +24,17 @@ body {
 }
 
 .story-container {
-  max-width: 1000px;
-  /* Increased padding to accommodate glow */
+  /* Reduce max-width to account for glow overflow */
+  max-width: calc(1000px - 40px);
+  /* Add horizontal margin to prevent glow cropping */
   margin: 40px auto;
-  padding: 20px;
+  /* Add horizontal padding for glow space */
+  padding: 20px 40px;
+  /* Adjust positioning */
+  position: relative;
+  /* Create space for glow overflow */
+  width: calc(100% - 80px);
+  /* Rest of existing properties remain the same */
   background: linear-gradient(
     135deg,
     rgba(10, 10, 31, 0.8),
@@ -42,6 +49,15 @@ body {
   position: relative;
   /* Add margin for glow effect */
   margin-bottom: 40px;
+}
+
+/* Add a wrapper to handle overflow properly */
+.story-wrapper {
+  width: 100%;
+  padding: 0 40px;
+  margin: 0 auto;
+  overflow: visible;
+  position: relative;
 }
 
 .sentence {
@@ -98,6 +114,8 @@ body {
   }
 }
 
+/* Rest of your CSS remains the same */
+
 @layer components {
   @keyframes fadeEffects {
     from { opacity: 0; transform: translateY(30px) scale(0.9); }
@@ -129,7 +147,11 @@ body {
   .sentence:hover,
   .settings-panel:hover,
   .cyber-player:hover {
-    @apply glow-effect;
+    transition-property: all;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 300ms;
+    animation: enhancedGlow 2s infinite;
+    filter: brightness(1.2);
   }
 }
 

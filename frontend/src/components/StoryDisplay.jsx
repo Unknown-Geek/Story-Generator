@@ -11,15 +11,17 @@ const StoryDisplay = ({ story, isLoading }) => {
   }
 
   return (
-    <Paper elevation={3} className="story-container p-6">
-      <Typography variant="body1" component="div" className="story-text">
-        {story.split('\n\n').map((paragraph, index) => (
-          <p key={index} className="mb-4">
-            {paragraph}
-          </p>
-        ))}
-      </Typography>
-    </Paper>
+    <div className="story-wrapper">
+      <Paper elevation={3} className="story-container p-6">
+        <Typography variant="body1" component="div" className="story-text">
+          {story.split('\n\n').map((paragraph, index) => (
+            <p key={index} className="mb-4">
+              {paragraph}
+            </p>
+          ))}
+        </Typography>
+      </Paper>
+    </div>
   );
 };
 

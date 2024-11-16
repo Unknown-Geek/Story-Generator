@@ -32,7 +32,7 @@ module.exports = {
   plugins: [
     require('@tailwindcss/forms'),
     // Add custom text shadow plugin
-    function({ addUtilities }) {
+    function({ addUtilities, addComponents }) {
       const newUtilities = {
         '.text-shadow-neon': {
           textShadow: '0 0 5px rgba(0, 243, 255, 0.3)', // Reduced intensity
@@ -42,6 +42,15 @@ module.exports = {
         },
       }
       addUtilities(newUtilities)
+      addComponents({
+        '.glow-effect': {
+          'transition-property': 'all',
+          'transition-timing-function': 'cubic-bezier(0.4, 0, 0.2, 1)',
+          'transition-duration': '300ms',
+          'animation': 'enhancedGlow 2s infinite',
+          'filter': 'brightness(1.2)',
+        },
+      });
     },
   ],
 }

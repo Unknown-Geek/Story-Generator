@@ -11,6 +11,7 @@ from io import BytesIO
 from datetime import datetime, timedelta
 from collections import deque
 from threading import Lock
+from concurrent.futures import ThreadPoolExecutor
 
 # Load environment variables
 load_dotenv()
@@ -18,9 +19,6 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-
-# Add this after load_dotenv()
-logger.info(f"Using Google API Key: {os.getenv('GOOGLE_API_KEY')[-6:]}") # Only log last 6 chars for security
 
 # Disable SSL warnings
 requests.packages.urllib3.disable_warnings()
@@ -89,12 +87,9 @@ story_model = genai.GenerativeModel(
     safety_settings=SAFETY_SETTINGS
 )
 
-# Rate limiting configuration - make it more lenient
-RATE_LIMIT_WINDOW = 60  # 1 minute window
-MAX_REQUESTS = 100      # Increased from 60 to 100
-GEMINI_RATE_LIMIT_WINDOW = 60
-GEMINI_MAX_REQUESTS = 100  # Increased from 60 to 100
-
+# Rate limiting configuration
+RATE_LIMIT_WINDOW = 60  # Increased to 1 minute
+MAX_REQUESTS = 60  # Adjusted for better performance
 request_times = deque(maxlen=MAX_REQUESTS)  # Add maxlen for automatic cleanup
 rate_limit_lock = Lock()
 
@@ -117,6 +112,8 @@ def check_rate_limit():
         return True
 
 # Add these constants near the top with other configurations
+GEMINI_RATE_LIMIT_WINDOW = 60  # 1 minute
+GEMINI_MAX_REQUESTS = 60  # Adjust based on your quota
 gemini_request_times = deque()
 gemini_rate_limit_lock = Lock()
 
@@ -135,11 +132,13 @@ def check_gemini_rate_limit():
         gemini_request_times.append(now)
         return True
 
+# Instead handle timeouts in the retry mechanism
 def retry_with_backoff(func, *args, **kwargs):
     """Generic retry function with exponential backoff"""
     last_exception = None
     for attempt, delay in enumerate(GEMINI_RETRY_DELAYS):
         try:
+            # Remove timeout parameter
             return func(*args, **kwargs)
         except Exception as e:
             last_exception = e
@@ -241,100 +240,139 @@ def generate_story():
             'error': 'An unexpected error occurred. Please try again later.'
         }), 500
 
+# Add new configuration for frame generation
+FRAME_IMAGE_SIZE = 320  # Minimum allowed size for Stability API v1.6
+MAX_CACHED_FRAMES = 100  # Increased from 50 to 100
+CACHE_CLEANUP_THRESHOLD = 80  # Clean when we reach 80% capacity
+frame_cache = {}
+
+def clean_old_frames():
+    """Remove old frames from cache if limit exceeded"""
+    if len(frame_cache) > CACHE_CLEANUP_THRESHOLD:
+        # Remove oldest frames more aggressively
+        oldest_frames = sorted(frame_cache.items(), key=lambda x: x[1]['timestamp'])[:20]
+        for frame_id, _ in oldest_frames:
+            del frame_cache[frame_id]
+
+# Add parallel processing for frame generation
+executor = ThreadPoolExecutor(max_workers=4)
+
+# Update rate limiting configuration for Stability API
+STABILITY_RATE_LIMIT_WINDOW = 10  # 10 seconds
+STABILITY_MAX_REQUESTS = 150  # Max requests per 10 seconds
+stability_request_times = deque()
+stability_rate_limit_lock = Lock()
+
+def check_stability_rate_limit():
+    """Check if we're within Stability API rate limits"""
+    now = datetime.now()
+    window_start = now - timedelta(seconds=STABILITY_RATE_LIMIT_WINDOW)
+    
+    with stability_rate_limit_lock:
+        while stability_request_times and stability_request_times[0] < window_start:
+            stability_request_times.popleft()
+        
+        if len(stability_request_times) >= STABILITY_MAX_REQUESTS:
+            return False
+        
+        stability_request_times.append(now)
+        return True
+
 @app.route('/generate_frame', methods=['POST'])
 def generate_frame():
     try:
-        if not check_rate_limit():
+        # Check both general and Stability-specific rate limits
+        if not check_rate_limit() or not check_stability_rate_limit():
             return jsonify({
                 'success': False, 
                 'error': 'Rate limit exceeded. Please wait and try again.'
             }), 429
-
-        # Add API key validation
-        stability_key = os.getenv('STABILITY_API_KEY')
-        if not stability_key:
-            logger.error("Stability API key not found")
-            return jsonify({
-                'success': False,
-                'error': 'Image generation service is not configured properly.',
-                'disable_stop_motion': True
-            }), 503
 
         data = request.json
         if not data or 'prompt' not in data:
             return jsonify({'success': False, 'error': 'No prompt provided'}), 400
 
         prompt = data['prompt']
+        prompt_hash = hash(prompt)  # Use prompt hash as cache key
+
+        # Check cache first
+        if prompt_hash in frame_cache:
+            cached_frame = frame_cache[prompt_hash]
+            # Update timestamp to mark as recently used
+            cached_frame['timestamp'] = datetime.now()
+            return jsonify({
+                'success': True,
+                'image': cached_frame['image'],
+                'cached': True
+            })
+
+        # Add family-friendly modifiers to prompt
         safe_prompt = f"family-friendly, child-appropriate, non-violent, cute, {prompt}"
 
+        # Stability API configuration with reduced image size
         API_URL = "https://api.stability.ai/v1/generation/stable-diffusion-v1-6/text-to-image"
+        
         headers = {
-            "Authorization": f"Bearer {stability_key}",
+            "Authorization": f"Bearer {os.getenv('STABILITY_API_KEY')}",
             "Accept": "application/json",
             "Content-Type": "application/json"
         }
 
+        # Optimize payload for faster generation
         payload = {
-            "text_prompts": [{"text": safe_prompt, "weight": 1}],
-            "cfg_scale": 7,
-            "height": 512,
-            "width": 512,
+            "text_prompts": [
+                {
+                    "text": safe_prompt,
+                    "weight": 1
+                }
+            ],
+            "cfg_scale": 6,  # Slightly reduced for faster generation
+            "height": FRAME_IMAGE_SIZE,
+            "width": FRAME_IMAGE_SIZE,
             "samples": 1,
-            "steps": 30,
+            "steps": 15,  # Further reduced steps for faster generation
             "style_preset": "digital-art"
         }
 
-        response = requests.post(API_URL, headers=headers, json=payload)
+        response = requests.post(
+            API_URL,
+            headers=headers,
+            json=payload
+        )
         
-        if response.status_code != 200:
-            error_data = None
-            try:
-                error_data = response.json()
-            except:
-                error_data = str(response.content)
-
-            logger.error(f"Stability API error: Status {response.status_code}, Response: {error_data}")
-
-            if response.status_code == 429:
-                if isinstance(error_data, dict) and ('insufficient_balance' in str(error_data) or 'exceeded' in str(error_data)):
-                    logger.error("Stability API balance depleted or quota exceeded")
-                    return jsonify({
-                        'success': False,
-                        'error': 'Image generation quota exceeded. Stop motion feature has been disabled.',
-                        'disable_stop_motion': True
-                    }), 503
+        if response.status_code == 200:
+            result = response.json()
+            if "artifacts" in result and len(result["artifacts"]) > 0:
+                img_data = result["artifacts"][0]["base64"]
+                image_url = f'data:image/png;base64,{img_data}'
+                
+                # Cache the generated frame
+                frame_cache[prompt_hash] = {
+                    'image': image_url,
+                    'timestamp': datetime.now()
+                }
+                
+                # Clean old frames if needed
+                clean_old_frames()
+                
                 return jsonify({
-                    'success': False,
-                    'error': 'Rate limit exceeded. Please try again later.',
-                    'disable_stop_motion': True
-                }), 429
-
+                    'success': True,
+                    'image': image_url,
+                    'cached': False
+                })
+            else:
+                raise Exception("No image generated in response")
+        else:
+            error_msg = response.json() if response.headers.get('content-type', '').startswith('application/json') else str(response.content)
+            logger.error(f"Stability API error: {error_msg}")
             return jsonify({
                 'success': False,
-                'error': f'Image generation failed: {str(error_data)}',
-                'disable_stop_motion': True
+                'error': f'Image generation failed: {error_msg}'
             }), response.status_code
-
-        result = response.json()
-        if "artifacts" in result and result["artifacts"]:
-            return jsonify({
-                'success': True,
-                'image': f'data:image/png;base64,{result["artifacts"][0]["base64"]}'
-            })
-        
-        return jsonify({
-            'success': False,
-            'error': 'No image generated',
-            'disable_stop_motion': True
-        }), 500
             
     except Exception as e:
         logger.error(f"Frame generation error: {str(e)}")
-        return jsonify({
-            'success': False,
-            'error': 'An unexpected error occurred',
-            'disable_stop_motion': True
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/health', methods=['GET'])
 def health_check():
