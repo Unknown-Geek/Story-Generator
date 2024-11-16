@@ -19,4 +19,4 @@ IF NOT EXIST "%VENV_DIR%" (
 )
 
 echo Installing requirements...
-cmd /k ""%SCRIPTS_DIR%\activate.bat" && python -m pip install --upgrade pip && pip install -r requirements.txt && echo Setup completed successfully! && echo. && echo You can now run your application with: python app.py && echo. && echo To deactivate the virtual environment type: deactivate"
+cmd /k ""%SCRIPTS_DIR%\activate.bat" && python -m pip install --upgrade pip && pip install -r backend/requirements.txt && echo Setup completed successfully! && echo. && echo You can now run your application with: python app.py && echo. && echo To deactivate the virtual environment type: deactivate && cd backend"

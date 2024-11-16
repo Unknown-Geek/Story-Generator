@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 import requests
 import io
+import time
 import base64
 import logging
 import os
@@ -45,7 +46,7 @@ logger = logging.getLogger(__name__)
 requests.packages.urllib3.disable_warnings()
 logging.captureWarnings(True)
 
-# Configure APIs
+# Configure Google AI
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # Define age-appropriate themes for each genre
@@ -91,7 +92,7 @@ generation_config = {
 }
 
 # Initialize models with safety settings
-vision_model = genai.GenerativeModel('gemini-1.5-pro', 
+vision_model = genai.GenerativeModel('gemini-1.5-flash', 
                                    generation_config=generation_config,
                                    safety_settings=SAFETY_SETTINGS)
 story_model = genai.GenerativeModel('gemini-pro', 
@@ -120,6 +121,27 @@ def check_rate_limit():
         
         # Add current request
         request_times.append(now)
+        return True
+
+# Add these constants near the top with other configurations
+GEMINI_RATE_LIMIT_WINDOW = 60  # 1 minute
+GEMINI_MAX_REQUESTS = 60  # Adjust based on your quota
+gemini_request_times = deque()
+gemini_rate_limit_lock = Lock()
+
+def check_gemini_rate_limit():
+    """Check if we're within Gemini API rate limits"""
+    now = datetime.now()
+    window_start = now - timedelta(seconds=GEMINI_RATE_LIMIT_WINDOW)
+    
+    with gemini_rate_limit_lock:
+        while gemini_request_times and gemini_request_times[0] < window_start:
+            gemini_request_times.popleft()
+        
+        if len(gemini_request_times) >= GEMINI_MAX_REQUESTS:
+            return False
+        
+        gemini_request_times.append(now)
         return True
 
 app = Flask(__name__)
@@ -157,121 +179,72 @@ def handle_preflight():
 @app.route('/generate_story', methods=['POST'])
 def generate_story():
     try:
-        data = request.get_json()
-        if not data:
-            logger.debug("No data received in request")
-            return jsonify({'success': False, 'error': 'No data received'}), 400
-        
-        image_data = data.get('image', '')
-        genre = data.get('genre', 'fantasy').lower()
-        word_count = data.get('length', 200)
-        
-        if not image_data:
-            return jsonify({'success': False, 'error': 'No image data provided'}), 400
-        
+        if not check_gemini_rate_limit():
+            return jsonify({
+                'success': False,
+                'error': 'Gemini API rate limit exceeded. Please try again in a minute.'
+            }), 429
+
+        data = request.json
+        image_base64 = data.get('image')
+        genre = data.get('genre', 'fantasy')
+        length = data.get('length', 500)
+
+        if not image_base64:
+            return jsonify({'success': False, 'error': 'No image provided'}), 400
+
         try:
-            logger.debug("Starting image processing")
+            image_data = base64.b64decode(image_base64)
+            image = Image.open(BytesIO(image_data))
             
-            # Ensure image_data is properly formatted
-            if ',' in image_data:
-                # Remove data URL prefix if present
-                image_data = image_data.split(',', 1)[1]
+            # Add retry logic for Gemini API calls
+            max_retries = 3
+            retry_delay = 1  # seconds
             
-            # Decode base64 with error handling
-            try:
-                image_bytes = base64.b64decode(image_data)
-            except Exception as decode_error:
-                logger.error(f"Base64 decode error: {str(decode_error)}")
-                return jsonify({'success': False, 'error': 'Invalid image format'}), 400
-            
-            if not image_bytes:
-                return jsonify({'success': False, 'error': 'Empty image data'}), 400
+            for attempt in range(max_retries):
+                try:
+                    # Get image description using Gemini Vision
+                    vision_prompt = f"Describe this image in detail for creating a {genre} story."
+                    response = vision_model.generate_content([vision_prompt, image])
+                    image_description = response.text
+
+                    # Generate story using Gemini Pro
+                    story_prompt = f"""
+                    Create a {genre} story based on this image description: {image_description}
+                    The story should be approximately {length} words long and suitable for all ages.
+                    Focus on {GENRE_THEMES.get(genre.lower(), 'engaging storytelling')}.
+                    """
+                    story_response = story_model.generate_content(story_prompt)
+                    story = story_response.text
+
+                    return jsonify({
+                        'success': True,
+                        'story': story,
+                        'image_description': image_description
+                    })
                 
-            logger.debug(f"Decoded image bytes: {len(image_bytes)} bytes")
-            
-            # Create a new BytesIO object and write the bytes
-            image_buffer = io.BytesIO(image_bytes)
-            image_buffer.seek(0)
-            
-            # Open the image with error handling
-            try:
-                image = Image.open(image_buffer)
-                image.verify()  # Verify image integrity
-                image_buffer.seek(0)  # Reset buffer after verify
-                image = Image.open(image_buffer)  # Reopen after verify
-            except Exception as img_error:
-                logger.error(f"Image open error: {str(img_error)}")
-                return jsonify({'success': False, 'error': 'Invalid or corrupted image'}), 400
-            
-            logger.debug(f"Opened image: mode={image.mode}, size={image.size}")
-            
-            # Validate image size
-            if image.size[0] < 1 or image.size[1] < 1:
-                return jsonify({'success': False, 'error': 'Invalid image dimensions'}), 400
-            
-            # Create a new RGB image and paste the original onto it
-            try:
-                if image.mode in ('RGBA', 'LA'):
-                    new_image = Image.new('RGB', image.size, (255, 255, 255))
-                    if image.mode == 'RGBA':
-                        if len(image.split()) >= 4:  # Ensure alpha channel exists
-                            new_image.paste(image, mask=image.split()[3])
-                        else:
-                            new_image.paste(image)
-                    else:
-                        if len(image.split()) >= 2:  # Ensure alpha channel exists
-                            new_image.paste(image, mask=image.split()[1])
-                        else:
-                            new_image.paste(image)
-                    image = new_image
-                    logger.debug("Converted image to RGB from RGBA/LA")
-                elif image.mode != 'RGB':
-                    new_image = Image.new('RGB', image.size, (255, 255, 255))
-                    new_image.paste(image)
-                    image = new_image
-                    logger.debug("Converted image to RGB from other mode")
-            except Exception as convert_error:
-                logger.error(f"Image conversion error: {str(convert_error)}")
-                return jsonify({'success': False, 'error': 'Failed to process image format'}), 400
-            
-            # Rest of the existing code...
-            
-            # Updated prompt generation with error handling
-            try:
-                image_prompt = "Describe the objects and scene in this image with detail and context."
-                image_response = vision_model.generate_content([image_prompt, image])
-                if not image_response or not hasattr(image_response, 'text'):
-                    return jsonify({'success': False, 'error': 'Failed to analyze image'}), 500
-                    
-                image_description = image_response.text
-                logger.debug(f"Image description: {image_description}")
-                
-                # Rest of story generation...
-                
-            except Exception as vision_error:
-                logger.error(f"Vision model error: {str(vision_error)}")
-                return jsonify({'success': False, 'error': 'Failed to analyze image'}), 500
-                
-        except Exception as img_error:
-            logger.error(f"Image processing error: {str(img_error)}")
-            return jsonify({'success': False, 'error': str(img_error)}), 400
-            
+                except Exception as e:
+                    if "429" in str(e) and attempt < max_retries - 1:
+                        time.sleep(retry_delay * (attempt + 1))
+                        continue
+                    raise
+
+        except Exception as e:
+            logger.error(f"Error processing image: {str(e)}")
+            return jsonify({
+                'success': False,
+                'error': f'Error processing image: {str(e)}'
+            }), 429 if "429" in str(e) else 400
+
     except Exception as e:
-        logger.error(f"Server error: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        logger.error(f"Error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Error generating story: {str(e)}'
+        }), 500
 
-@app.route('/generate_frame', methods=['POST', 'OPTIONS'])
+@app.route('/generate_frame', methods=['POST'])
 def generate_frame():
-    # Handle OPTIONS request
-    if request.method == "OPTIONS":
-        response = make_response()
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-        response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
-        response.headers.add('Access-Control-Max-Age', '3600')
-        return response
-
-    # Regular POST request handling
     try:
         if not check_rate_limit():
             return jsonify({
@@ -288,15 +261,16 @@ def generate_frame():
         safe_prompt = f"family-friendly, child-appropriate, non-violent, cute, {prompt}"
 
         # Stability API configuration
-        API_URL = "https://api.stability.ai/v2beta/stable-image/generate/core"
+        API_URL = "https://api.stability.ai/v1/generation/stable-diffusion-v1-6/text-to-image"
+        
         headers = {
             "Authorization": f"Bearer {os.getenv('STABILITY_API_KEY')}",
-            "Accept": "image/*",
+            "Accept": "application/json",
             "Content-Type": "application/json"
         }
-        
-        # Request body
-        request_data = {
+
+        # Create JSON payload exactly as in images.py
+        payload = {
             "text_prompts": [
                 {
                     "text": safe_prompt,
@@ -307,22 +281,29 @@ def generate_frame():
             "height": 512,
             "width": 512,
             "samples": 1,
-            "steps": 1,
+            "steps": 30,
+            "style_preset": "digital-art"
         }
 
-        # Generate image using Stability API
-        response = requests.post(API_URL, headers=headers, json=request_data)
+        # Generate image using Stability API with JSON
+        response = requests.post(
+            API_URL,
+            headers=headers,
+            json=payload  # Use json parameter instead of files
+        )
         
         if response.status_code == 200:
-            # Convert to base64
-            img_data = response.content
-            img_str = base64.b64encode(img_data).decode()
-            return jsonify({
-                'success': True,
-                'image': f'data:image/webp;base64,{img_str}'
-            })
+            result = response.json()
+            if "artifacts" in result and len(result["artifacts"]) > 0:
+                img_data = result["artifacts"][0]["base64"]
+                return jsonify({
+                    'success': True,
+                    'image': f'data:image/png;base64,{img_data}'
+                })
+            else:
+                raise Exception("No image generated in response")
         else:
-            error_msg = response.json() if 'application/json' in response.headers.get('content-type', '') else str(response.content)
+            error_msg = response.json() if response.headers.get('content-type', '').startswith('application/json') else str(response.content)
             logger.error(f"Stability API error: {error_msg}")
             return jsonify({
                 'success': False,
