@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root {
+  /* Theme colors and effects */
   --neon-blue: #00f3ff;
   --neon-purple: #8000ff;
   --dark-bg: #0a0a1f;
@@ -15,40 +16,27 @@
   --border-glow: rgba(0, 243, 255, 0.4);
 }
 
+/* Base styles */
 body {
   background: radial-gradient(circle at 50% 50%, var(--dark-bg), #000510);
   color: #e0e0e0;
   font-family: "Inter", sans-serif;
-  /* Add padding to body to prevent any potential overflow issues */
   padding: 20px;
 }
 
+/* Container styles */
 .story-container {
-  /* Reduce max-width to account for glow overflow */
   max-width: calc(1000px - 40px);
-  /* Add horizontal margin to prevent glow cropping */
-  margin: 40px auto;
-  /* Add horizontal padding for glow space */
-  padding: 20px 40px;
-  /* Adjust positioning */
-  position: relative;
-  /* Create space for glow overflow */
   width: calc(100% - 80px);
-  /* Rest of existing properties remain the same */
-  background: linear-gradient(
-    135deg,
-    rgba(10, 10, 31, 0.8),
-    rgba(0, 5, 16, 0.9)
-  );
+  margin: 40px auto;
+  padding: 20px 40px;
+  position: relative;
+  background: linear-gradient(135deg, rgba(10, 10, 31, 0.8), rgba(0, 5, 16, 0.9));
   border-radius: 20px;
   border: 2px solid var(--border-glow);
   box-shadow: var(--glow-strength);
   filter: drop-shadow(0 0 20px rgba(0, 243, 255, 0.2));
   backdrop-filter: blur(10px);
-  /* Remove overflow hidden if present */
-  position: relative;
-  /* Add margin for glow effect */
-  margin-bottom: 40px;
 }
 
 /* Add a wrapper to handle overflow properly */
@@ -98,19 +86,15 @@ body {
   z-index: 1;
 }
 
-/* Update animation keyframes to account for glow */
+/* Animation keyframes */
 @keyframes textGlow {
-  0% {
+  0%, 100% { 
     text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
     box-shadow: 0 0 20px rgba(0, 243, 255, 0.3);
   }
-  50% {
+  50% { 
     text-shadow: 0 0 30px rgba(0, 243, 255, 0.8);
     box-shadow: 0 0 40px rgba(0, 243, 255, 0.4);
-  }
-  100% {
-    text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
-    box-shadow: 0 0 20px rgba(0, 243, 255, 0.3);
   }
 }
 

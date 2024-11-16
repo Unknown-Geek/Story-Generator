@@ -1,3 +1,4 @@
+/** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
     "./src/**/*.{js,jsx,ts,tsx}",
@@ -31,17 +32,16 @@ module.exports = {
   },
   plugins: [
     require('@tailwindcss/forms'),
-    // Add custom text shadow plugin
     function({ addUtilities, addComponents }) {
-      const newUtilities = {
+      // Custom utilities and components
+      addUtilities({
         '.text-shadow-neon': {
-          textShadow: '0 0 5px rgba(0, 243, 255, 0.3)', // Reduced intensity
+          textShadow: '0 0 5px rgba(0, 243, 255, 0.3)',
         },
         '.text-shadow-neon-hover': {
-          textShadow: '0 0 8px rgba(0, 243, 255, 0.4)', // Subtle hover effect
+          textShadow: '0 0 8px rgba(0, 243, 255, 0.4)',
         },
-      }
-      addUtilities(newUtilities)
+      });
       addComponents({
         '.glow-effect': {
           'transition-property': 'all',
