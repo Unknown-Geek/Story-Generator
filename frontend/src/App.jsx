@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { StopMotionPlayer } from './components/StopMotionPlayer';
+import CollapsibleStory from './components/CollapsibleStory';
 
 const GENRES = ["Fantasy", "Adventure", "Romance", "Horror", "Mystery", "Moral Story"];
 const STORY_LENGTHS = [
@@ -17,40 +18,6 @@ const VOICE_TYPES = [
 
 // Update BACKEND_URL to use environment variable
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
-
-const CollapsibleStory = ({ story }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const contentRef = useRef(null);
-
-  return (
-    <div className="story-collapsible">
-      <div 
-        className="story-collapsible-header hover:bg-dark-bg/50 transition-colors"
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
-        <div className="flex items-center justify-between">
-          <span className="text-neon-blue">{isExpanded ? 'Hide Story' : 'View Complete Story'}</span>
-          <svg 
-            className={`w-6 h-6 transform transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
-            fill="none" 
-            stroke="currentColor" 
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </div>
-      </div>
-      <div 
-        ref={contentRef}
-        className={`story-collapsible-content ${isExpanded ? 'expanded' : ''}`}
-      >
-        <p className="sentence mt-4">
-          {story}
-        </p>
-      </div>
-    </div>
-  );
-};
 
 const FRAME_INTERVAL = 2; // seconds between frames
 
@@ -451,12 +418,13 @@ const App = () => {
         <button
           onClick={generateStory}
           disabled={loading}
-          className="w-full p-4 bg-gradient-to-r from-neon-blue to-neon-purple text-white rounded-lg font-semibold 
-                   hover:shadow-neon-hover disabled:opacity-50 transition-all duration-300 
-                   backdrop-blur-sm shadow-neon mb-[50px]"
+          className="glass-button w-full flex items-center justify-center gap-2"
         >
           {loading ? (
-            <div className="loading-spinner inline-block border-t-neon-blue"/>
+            <>
+              <div className="loading-spinner" />
+              <span>Generating...</span>
+            </>
           ) : (
             "Generate Story"
           )}

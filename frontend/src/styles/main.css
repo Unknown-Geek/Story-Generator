@@ -3,178 +3,124 @@
 @tailwind utilities;
 
 :root {
-  /* Theme colors and effects */
   --neon-blue: #00f3ff;
   --neon-purple: #8000ff;
-  --dark-bg: #0a0a1f;
-  --mesh-1: rgba(0, 243, 255, 0.1);
-  --mesh-2: rgba(128, 0, 255, 0.1);
+  --dark-bg: #070715;
   --glow-shadow: 0 0 20px rgba(0, 243, 255, 0.3);
   --text-glow: 0 0 15px rgba(0, 243, 255, 0.7);
   --glow-strength: 0 0 40px rgba(0, 243, 255, 0.4);
-  --text-glow-strength: 0 0 25px rgba(0, 243, 255, 0.5);
-  --border-glow: rgba(0, 243, 255, 0.4);
+  --border-glow: rgba(0, 243, 255, 0.2);
 }
 
-/* Base styles */
-body {
-  background: radial-gradient(circle at 50% 50%, var(--dark-bg), #000510);
-  color: #e0e0e0;
-  font-family: "Inter", sans-serif;
-  padding: 20px;
-}
-
-/* Container styles */
-.story-container {
-  max-width: calc(1000px - 40px);
-  width: calc(100% - 80px);
-  margin: 40px auto;
-  padding: 20px 40px;
-  position: relative;
-  background: linear-gradient(135deg, rgba(10, 10, 31, 0.8), rgba(0, 5, 16, 0.9));
-  border-radius: 20px;
-  border: 2px solid var(--border-glow);
-  box-shadow: var(--glow-strength);
-  filter: drop-shadow(0 0 20px rgba(0, 243, 255, 0.2));
-  backdrop-filter: blur(10px);
-}
-
-/* Add a wrapper to handle overflow properly */
-.story-wrapper {
-  width: 100%;
-  padding: 0 40px;
-  margin: 0 auto;
-  overflow: visible;
-  position: relative;
-}
-
-.sentence {
-  font-size: 25px;
-  line-height: 1.6;
-  text-align: center;
-  /* Increased padding to prevent text touching borders */
-  padding: 30px;
-  /* Added margin to prevent glow overlap */
-  margin: 40px 20px;
-  background: linear-gradient(170deg, var(--mesh-1) 0%, var(--mesh-2) 100%);
-  border-radius: 15px;
-  border: 2px solid var(--border-glow);
-  box-shadow: var(--glow-strength), inset 0 0 30px rgba(0, 243, 255, 0.2);
-  backdrop-filter: blur(10px);
-  animation: fadeSlideIn 1s ease-out, textGlow 3s ease-in-out infinite;
-  color: #ffffff;
-  text-shadow: var(--text-glow-strength);
-  /* Remove any overflow hidden */
-  position: relative;
-  z-index: 1;
-}
-
-/* Update the container that's cropping the glow */
-.cyber-container {
-  /* Add padding to prevent glow cutoff */
-  padding: 20px;
-  margin: 20px;
-  position: relative;
-  /* Remove overflow hidden */
-  background: transparent;
-  z-index: 1;
-}
-
-/* Enhanced glow effect */
-.glow-effect {
-  position: relative;
-  z-index: 1;
-}
-
-/* Animation keyframes */
-@keyframes textGlow {
-  0%, 100% { 
-    text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
-    box-shadow: 0 0 20px rgba(0, 243, 255, 0.3);
-  }
-  50% { 
-    text-shadow: 0 0 30px rgba(0, 243, 255, 0.8);
-    box-shadow: 0 0 40px rgba(0, 243, 255, 0.4);
+@layer base {
+  body {
+    @apply bg-gradient-radial from-dark-bg to-[#000510] text-gray-200 font-inter p-5;
   }
 }
-
-/* Rest of your CSS remains the same */
 
 @layer components {
-  @keyframes fadeEffects {
-    from { opacity: 0; transform: translateY(30px) scale(0.9); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+  .story-container {
+    @apply max-w-[960px] w-[calc(100%-2rem)] mx-auto my-10 p-5 md:p-10 relative 
+           bg-gradient-to-br from-[rgba(10,10,31,0.8)] to-[rgba(0,5,16,0.9)]
+           rounded-2xl border-2 border-neon-blue/20 shadow-neon backdrop-blur-md;
   }
 
-  @keyframes glowEffects {
-    0% { 
-      text-shadow: var(--text-glow);
-      box-shadow: var(--glow-shadow);
-    }
-    50% { 
-      text-shadow: var(--text-glow-strength);
-      box-shadow: var(--glow-strength);
-    }
-    100% { 
-      text-shadow: var(--text-glow);
-      box-shadow: var(--glow-shadow);
-    }
+  .story-wrapper {
+    @apply w-full px-10 mx-auto overflow-visible relative;
+  }
+
+  .sentence {
+    @apply text-2xl leading-relaxed text-center p-8 my-10 
+           bg-gradient-to-br from-[rgba(10,10,31,0.6)] to-[rgba(0,5,16,0.7)]
+           rounded-xl border-2 border-neon-blue/20 shadow-neon backdrop-blur-md
+           animate-fadeIn text-white relative z-10;
+  }
+
+  .cyber-container {
+    @apply p-5 my-5 relative bg-transparent z-10;
   }
 
   .glow-effect {
-    @apply transition-all duration-300;
-    animation: enhancedGlow 2s infinite;
-    filter: brightness(1.2);
+    @apply relative z-10 transition-all duration-300 hover:brightness-110;
   }
 
-  .story-container:hover,
-  .sentence:hover,
-  .settings-panel:hover,
-  .cyber-player:hover {
-    transition-property: all;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    transition-duration: 300ms;
-    animation: enhancedGlow 2s infinite;
-    filter: brightness(1.2);
+  .current-line {
+    @apply relative my-5 p-6 bg-[rgba(10,10,31,0.4)] border border-neon-blue/20 
+           rounded-xl backdrop-blur-md shadow-neon transition-all duration-500
+           text-lg leading-relaxed text-center animate-pulse;
+  }
+
+  .glass-button {
+    @apply relative z-10 bg-[rgba(10,10,31,0.4)] backdrop-blur-md
+           border border-neon-blue/20 px-6 py-3 rounded-lg text-white/90 font-medium
+           transition-all duration-300 shadow-neon hover:bg-[rgba(10,10,31,0.6)]
+           hover:border-neon-blue/40 hover:shadow-neon-hover hover:-translate-y-0.5
+           active:translate-y-0;
+  }
+
+  .story-collapsible {
+    @apply bg-[rgba(10,10,31,0.3)] rounded-xl overflow-hidden transition-all duration-300 relative z-10;
+  }
+
+  .story-collapsible-content {
+    @apply max-h-0 opacity-0 transition-all duration-500 ease-in-out overflow-hidden
+           origin-top scale-y-95;
+  }
+
+  .story-collapsible-content.expanded {
+    @apply max-h-[2000px] opacity-100 p-4 scale-y-100;
+  }
+
+  .cyber-player {
+    @apply bg-[rgba(10,10,31,0.8)] rounded-lg border border-neon-blue/20 backdrop-blur-md p-6 mb-8;
+  }
+
+  .progress-bar {
+    @apply relative h-3 bg-dark-bg/30 rounded-full cursor-pointer overflow-hidden backdrop-blur-sm;
+  }
+
+  .progress-indicator {
+    @apply absolute top-1/2 -translate-y-1/2 h-4 w-4 rounded-full bg-white shadow-neon cursor-grab;
+  }
+
+  .loading-spinner {
+    @apply w-6 h-6 border-2 border-neon-blue/20 border-t-neon-blue rounded-full animate-spin;
   }
 }
 
-.title-glow {
-  text-shadow: 0 0 5px rgba(0, 243, 255, 0.3);
-  transition: text-shadow 0.3s ease;
+@layer utilities {
+  .shadow-neon {
+    box-shadow: 0 0 20px rgba(0, 243, 255, 0.1);
+  }
+
+  .shadow-neon-hover {
+    box-shadow: 0 0 30px rgba(0, 243, 255, 0.2);
+  }
+
+  .text-shadow-neon {
+    text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+  }
 }
 
-.title-glow:hover {
-  text-shadow: 0 0 8px rgba(0, 243, 255, 0.4);
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.stop-motion-container {
-  box-shadow: var(--glow-strength);
-  border: 2px solid var(--border-glow);
-  transition: all 0.3s ease;
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
 }
 
-.stop-motion-container img {
-  transition: opacity 0.3s ease;
+@keyframes textGlow {
+  0%, 100% { text-shadow: 0 0 10px rgba(0, 243, 255, 0.3); }
+  50% { text-shadow: 0 0 20px rgba(0, 243, 255, 0.5); }
 }
 
-.stop-motion-container {
-  position: relative;
-  overflow: hidden;
-  background: rgba(10, 10, 31, 0.8);
-  border: 2px solid var(--border-glow);
-  margin-bottom: 2rem;
-  transition: all 0.3s ease;
+.animate-fadeIn {
+  animation: fadeIn 0.5s ease-out;
 }
 
-.stop-motion-container img {
-  width: 100%;
-  height: auto;
-  object-fit: cover;
-  transition: opacity 0.3s ease, transform 0.3s ease;
-}
-
-.stop-motion-container:hover {
-  transform: scale(1.02);
-  box-shadow: var(--glow-shadow);
+.animate-pulse {
+  animation: pulse 2s infinite;
 }

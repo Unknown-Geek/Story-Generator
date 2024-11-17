@@ -2,13 +2,16 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 
 const BACKEND_URL =
   process.env.REACT_APP_BACKEND_URL || "http://localhost:5000";
-// Reduce FPS and total frames
-const FPS = 6; // Reduced from 12
+// Reduce constants for better performance and less API load
+const FPS = 2; // Reduced from 4
 const FRAME_TIME = 1000 / FPS;
-const MAX_FRAMES = 24; // Reduced from 48
-const BATCH_SIZE = 4; // Reduced from 10
-const BATCH_INTERVAL = 5000; // Increased from 2000 to 5000ms
+const MAX_FRAMES = 8; // Reduced from 16
+const BATCH_SIZE = 1; // Process one frame at a time
+const BATCH_INTERVAL = 10000; // 10 seconds between batches
 const REQUEST_TIMEOUT = 15000; // 15 second timeout for requests
+
+// Add request caching
+const frameCache = new Map();
 
 export const StopMotionPlayer = ({
   story,
@@ -26,74 +29,26 @@ export const StopMotionPlayer = ({
     if (frameQueue.current.length === 0 || isGenerating.current) return;
 
     isGenerating.current = true;
-    const batch = frameQueue.current.slice(0, BATCH_SIZE);
+    const prompt = frameQueue.current[0]; // Process one at a time
 
     try {
-      // Add exponential backoff retry logic
-      const fetchWithRetry = async (prompt, retryCount = 0) => {
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(
-            () => controller.abort(),
-            REQUEST_TIMEOUT
-          );
+      const response = await fetch(`${BACKEND_URL}/generate_frame`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      });
 
-          const response = await fetch(`${BACKEND_URL}/generate_frame`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt }),
-            signal: controller.signal,
-          });
-
-          clearTimeout(timeoutId);
-
-          if (response.status === 429) {
-            throw new Error("rate_limit");
-          }
-
-          return await response.json();
-        } catch (error) {
-          if (error.message === "rate_limit" && retryCount < 3) {
-            // Exponential backoff
-            await new Promise((resolve) =>
-              setTimeout(resolve, Math.pow(2, retryCount) * 5000)
-            );
-            return fetchWithRetry(prompt, retryCount + 1);
-          }
-          throw error;
-        }
-      };
-
-      // Process batch with increased delays between requests
-      const results = await Promise.all(
-        batch.map(
-          (prompt, index) =>
-            new Promise((resolve) => {
-              setTimeout(async () => {
-                try {
-                  const result = await fetchWithRetry(prompt);
-                  resolve({ status: "fulfilled", value: result });
-                } catch (error) {
-                  resolve({ status: "rejected", reason: error });
-                }
-              }, index * 1500); // 1.5 second delay between requests
-            })
-        )
-      );
-
-      const successfulFrames = results
-        .filter(
-          (result) => result.status === "fulfilled" && result.value.success
-        )
-        .map((result) => result.value.image);
-
-      if (successfulFrames.length > 0) {
-        setFrames((prev) => [...prev, ...successfulFrames]);
-        frameQueue.current = frameQueue.current.slice(successfulFrames.length);
+      const data = await response.json();
+      
+      if (data.success) {
+        setFrames(prev => [...prev, data.image]);
+        frameQueue.current = frameQueue.current.slice(1);
+      } else {
+        console.error('Frame generation failed:', data.error);
       }
     } catch (error) {
-      console.error("Batch frame generation error:", error);
-      setError("Frame generation failed. Retrying...");
+      console.error('Frame generation error:', error);
+      setError('Failed to generate frame. Retrying...');
     } finally {
       isGenerating.current = false;
     }

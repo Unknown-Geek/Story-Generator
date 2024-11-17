@@ -1,6 +1,0 @@
-
-authtoken: ${NGROK_AUTH_TOKEN}
-tunnels:
-  story_generator:
-    addr: 5000
-    proto: http
