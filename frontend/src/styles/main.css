@@ -14,7 +14,7 @@
 
 @layer base {
   body {
-    @apply bg-gradient-radial from-dark-bg to-[#000510] text-gray-200 font-inter p-5;
+    @apply bg-gradient-radial from-dark-bg to-[#000510] text-gray-100 font-jakarta p-5;
   }
 }
 
@@ -99,6 +99,15 @@
 
   .text-shadow-neon {
     text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+  }
+
+  .bottom-glow {
+    background: linear-gradient(to top, 
+      rgba(0, 243, 255, 0.1) 0%,
+      rgba(0, 243, 255, 0.05) 30%,
+      transparent 100%
+    );
+    filter: blur(20px);
   }
 }
 

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { StopMotionPlayer } from './components/StopMotionPlayer';
 import CollapsibleStory from './components/CollapsibleStory';
+import AudioPlayer from './components/AudioPlayer'; // Add this import
 
 const GENRES = ["Fantasy", "Adventure", "Romance", "Horror", "Mystery", "Moral Story"];
 const STORY_LENGTHS = [
@@ -20,228 +21,6 @@ const VOICE_TYPES = [
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
 
 const FRAME_INTERVAL = 2; // seconds between frames
-
-const AudioPlayer = ({ story, voiceSettings, onTimeUpdate, initialTime }) => {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(initialTime || 0);
-  const [duration, setDuration] = useState(0);
-  const [currentLine, setCurrentLine] = useState('');
-  const progressRef = useRef(null);
-  const utteranceRef = useRef(null);
-  const intervalRef = useRef(null);
-  const pausedAtRef = useRef(0);
-  const textToSpeakRef = useRef(story);
-
-  // Helper functions
-  const calculateDuration = (text) => {
-    // Estimate duration based on word count and speech rate
-    const wordsPerMinute = voiceSettings.speed === 'slow' ? 100 : 
-                          voiceSettings.speed === 'fast' ? 200 : 150;
-    const wordCount = text.split(' ').length;
-    return (wordCount / wordsPerMinute) * 60;
-  };
-
-  const getCurrentSentence = (text, position) => {
-    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-    const totalLength = text.length;
-    const currentPosition = Math.floor((position / duration) * totalLength);
-    
-    let accumulatedLength = 0;
-    for (let sentence of sentences) {
-      accumulatedLength += sentence.length;
-      if (accumulatedLength >= currentPosition) {
-        return sentence.trim();
-      }
-    }
-    return sentences[sentences.length - 1].trim();
-  };
-
-  const formatTime = (time) => {
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  };
-
-  const startPlayback = (fromPosition = 0) => {
-    if (window.speechSynthesis.speaking) {
-      window.speechSynthesis.cancel();
-    }
-
-    // Calculate text to speak based on position
-    const words = story.split(' ');
-    const wordPosition = Math.floor((words.length * fromPosition) / duration);
-    const remainingText = words.slice(wordPosition).join(' ');
-    textToSpeakRef.current = remainingText;
-
-    utteranceRef.current = new SpeechSynthesisUtterance(remainingText);
-    utteranceRef.current.rate = voiceSettings.speed === 'slow' ? 0.7 : 
-                               voiceSettings.speed === 'fast' ? 1.3 : 1;
-
-    const voices = window.speechSynthesis.getVoices();
-    const voice = voices.find(v => v.voiceURI.includes(voiceSettings.accent));
-    if (voice) utteranceRef.current.voice = voice;
-
-    // Set up event handlers
-    utteranceRef.current.onstart = () => {
-      setIsPlaying(true);
-      if (!duration) {
-        setDuration(calculateDuration(story));
-      }
-      
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      
-      // Start from saved position
-      setCurrentTime(fromPosition);
-      
-      intervalRef.current = setInterval(() => {
-        setCurrentTime(prev => {
-          const newTime = prev + 0.1;
-          pausedAtRef.current = newTime;
-          return newTime < duration ? newTime : prev;
-        });
-      }, 100);
-    };
-
-    utteranceRef.current.onend = () => {
-      setIsPlaying(false);
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-      // Only reset if we finished the complete story
-      if (textToSpeakRef.current === story) {
-        setCurrentTime(0);
-        pausedAtRef.current = 0;
-      }
-    };
-
-    utteranceRef.current.onpause = () => {
-      setIsPlaying(false);
-      pausedAtRef.current = currentTime;
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-
-    window.speechSynthesis.speak(utteranceRef.current);
-  };
-
-  const stopPlayback = () => {
-    if (window.speechSynthesis.speaking) {
-      window.speechSynthesis.cancel();
-    }
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-    pausedAtRef.current = currentTime;
-    setIsPlaying(false);
-  };
-
-  const togglePlay = () => {
-    if (isPlaying) {
-      stopPlayback();
-    } else {
-      startPlayback(pausedAtRef.current);
-    }
-  };
-
-  const handleProgressClick = (e) => {
-    if (!progressRef.current) return;
-
-    const bounds = progressRef.current.getBoundingClientRect();
-    const percent = (e.clientX - bounds.left) / bounds.width;
-    const newTime = percent * duration;
-    
-    // Stop current playback
-    if (window.speechSynthesis.speaking) {
-      window.speechSynthesis.cancel();
-    }
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-
-    setCurrentTime(newTime);
-    pausedAtRef.current = newTime;
-
-    // If we were playing, start from new position
-    if (isPlaying) {
-      startPlayback(newTime);
-    }
-  };
-
-  // Effects
-  useEffect(() => {
-    setDuration(calculateDuration(story));
-    return () => {
-      if (window.speechSynthesis.speaking) {
-        window.speechSynthesis.cancel();
-      }
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [story]);
-
-  useEffect(() => {
-    if (isPlaying) {
-      stopPlayback();
-      startPlayback(pausedAtRef.current);
-    }
-  }, [voiceSettings]);
-
-  useEffect(() => {
-    setCurrentLine(getCurrentSentence(story, currentTime));
-  }, [currentTime, story]);
-
-  // Add frame synchronization
-  useEffect(() => {
-    if (onTimeUpdate) {
-      onTimeUpdate(currentTime);
-    }
-  }, [currentTime, onTimeUpdate]);
-
-  // Render component
-  return (
-    <div className="cyber-player">
-      <div className="current-line">
-        {currentLine}
-      </div>
-      
-      <div className="flex items-center gap-4 mb-4">
-        <button 
-          className="w-16 h-16 rounded-full bg-gradient-to-r from-neon-blue to-neon-purple 
-                     flex items-center justify-center shadow-neon hover:shadow-neon-hover 
-                     transition-all duration-300"
-          onClick={togglePlay}
-        >
-          {isPlaying ? (
-            <svg className="w-8 h-8 text-white" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="6" y="4" width="4" height="16"/>
-              <rect x="14" y="4" width="4" height="16"/>
-            </svg>
-          ) : (
-            <svg className="w-8 h-8 text-white" viewBox="0 0 24 24" fill="currentColor">
-              <polygon points="5,3 19,12 5,21"/>
-            </svg>
-          )}
-        </button>
-        <span className="text-white/80 font-mono text-xl">
-          {formatTime(currentTime)} / {formatTime(duration)}
-        </span>
-      </div>
-
-      <div 
-        className="relative h-3 bg-dark-bg/50 rounded-full cursor-pointer overflow-hidden"
-        ref={progressRef}
-        onClick={handleProgressClick}
-      >
-        <div 
-          className="absolute top-0 left-0 h-full bg-gradient-to-r from-neon-blue to-neon-purple shadow-neon"
-          style={{ width: `${(currentTime / duration) * 100}%` }}
-        />
-      </div>
-    </div>
-  );
-};
 
 const App = () => {
   const [image, setImage] = useState(null);
@@ -321,9 +100,9 @@ const App = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_50%_50%,var(--tw-gradient-stops))] from-dark-bg via-[#000510] to-[#000510] py-8 px-4">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-4xl font-bold text-center text-white mb-12 text-shadow-neon">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_50%_50%,var(--tw-gradient-stops))] from-dark-bg via-[#000510] to-[#000510] py-8 px-4 relative">
+      <div className="max-w-4xl mx-auto relative z-10">
+        <h1 className="text-5xl font-bold text-center text-white mb-12 text-shadow-neon" style={{ fontFamily: "'Base Neue', 'Eurostile', 'Bank Gothic', sans-serif" }}>
           Story Generator
         </h1>
 
@@ -449,6 +228,19 @@ const App = () => {
             <CollapsibleStory story={story} />
           </div>
         )}
+      </div>
+      <div className="fixed bottom-0 left-0 w-full pointer-events-none">
+        {/* Subtle white core glow */}
+        <div className="absolute bottom-0 w-full h-[8px] bg-gradient-to-t from-white to-transparent blur-[6px]" />
+        
+        {/* Layered soft blue glows */}
+        <div className="absolute bottom-0 w-full h-[30px] bg-gradient-to-t from-neon-blue/25 via-neon-blue/10 to-transparent blur-[10px]" />
+        <div className="absolute bottom-0 w-full h-[60px] bg-gradient-to-t from-neon-blue/20 via-neon-blue/8 to-transparent blur-[20px]" />
+        <div className="absolute bottom-0 w-full h-[100px] bg-gradient-to-t from-neon-blue/15 via-neon-blue/5 to-transparent blur-[30px]" />
+        <div className="absolute bottom-0 w-full h-[200px] bg-gradient-to-t from-neon-blue/10 via-neon-blue/3 to-transparent blur-[50px]" />
+        
+        {/* Ultra-soft ambient glow */}
+        <div className="absolute bottom-0 w-full h-[300px] bg-gradient-to-t from-neon-blue/5 via-neon-blue/2 to-transparent blur-[80px]" />
       </div>
     </div>
   );

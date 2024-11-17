@@ -45,6 +45,8 @@ module.exports = {
       },
       fontFamily: {
         'inter': ['Inter', 'sans-serif'],
+        'gilroy': ['Gilroy', 'sans-serif'],
+        'jakarta': ['"Plus Jakarta Sans"', 'sans-serif'],
       },
     },
   },

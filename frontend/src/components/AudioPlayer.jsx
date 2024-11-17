@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { Play, Pause, Rewind, FastForward } from 'lucide-react';
 
 const AudioPlayer = ({ story, voiceSettings, onTimeUpdate, initialTime }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -180,81 +182,122 @@ const AudioPlayer = ({ story, voiceSettings, onTimeUpdate, initialTime }) => {
 
   // Render component
   return (
-    <div className="cyber-player p-8 bg-gradient-to-br from-[rgba(10,10,31,0.9)] to-[rgba(10,10,31,0.7)] rounded-xl border border-neon-blue/20 backdrop-blur-md mb-8 shadow-neon hover:shadow-neon-hover transition-all duration-300">
-      <div className="current-line mb-8 p-8 bg-gradient-to-br from-[rgba(0,0,0,0.4)] to-[rgba(0,0,0,0.2)] rounded-xl border border-neon-blue/20">
-        <p className="text-2xl md:text-3xl leading-relaxed text-white/90 font-light">
+    <div className="w-full max-w-4xl mx-auto bg-gradient-to-br from-[rgba(10,10,31,0.9)] to-[rgba(10,10,31,0.7)] p-6 rounded-xl border border-neon-blue/20 backdrop-blur-md shadow-neon hover:shadow-neon-hover transition-all duration-300">
+      <motion.div 
+        className="mb-8 p-8 rounded-xl border border-neon-blue/20"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
+        <motion.p 
+          key={currentLine} // Add key to trigger animation on line change
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, ease: "easeOut" }}
+          className="text-xl md:text-2xl leading-relaxed text-white/90 font-semibold text-center"
+        >
           {currentLine || "Ready to start narration..."}
-        </p>
-      </div>
+        </motion.p>
+      </motion.div>
       
-      <div className="flex flex-col md:flex-row items-center gap-8 mb-6">
-        <button 
-          className="glass-button w-20 h-20 rounded-full flex items-center justify-center group hover:scale-105 transition-all duration-300 bg-gradient-to-br from-neon-blue/20 to-neon-purple/20"
+      <div className="flex items-center space-x-4 mb-4">
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="w-16 h-16 rounded-full bg-gradient-to-r from-neon-blue/20 to-neon-purple/20 
+                   flex items-center justify-center border border-neon-blue/30 shadow-neon"
           onClick={togglePlay}
           aria-label={isPlaying ? "Pause" : "Play"}
         >
           {isPlaying ? (
-            <svg className="w-10 h-10 text-white/90 group-hover:text-white" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="6" y="4" width="4" height="16"/>
-              <rect x="14" y="4" width="4" height="16"/>
-            </svg>
+            <Pause className="w-8 h-8 text-white/90" />
           ) : (
-            <svg className="w-10 h-10 text-white/90 group-hover:text-white" viewBox="0 0 24 24" fill="currentColor">
-              <polygon points="5,3 19,12 5,21"/>
-            </svg>
+            <Play className="w-8 h-8 text-white/90" />
           )}
-        </button>
-
-        <div className="flex-1 w-full">
-          <div className="flex justify-between mb-3">
-            <span className="text-white/90 font-mono text-lg">
-              {formatTime(currentTime)}
-            </span>
-            <span className="text-white/90 font-mono text-lg">
-              {formatTime(duration)}
-            </span>
-          </div>
-
-          <div 
-            className="relative h-4 bg-dark-bg/40 rounded-full cursor-pointer overflow-hidden backdrop-blur-sm group"
-            ref={progressRef}
-            onClick={handleProgressClick}
-            role="progressbar"
-            aria-valuemin="0"
-            aria-valuemax={duration}
-            aria-valuenow={currentTime}
-          >
-            <div 
-              className="absolute top-0 left-0 h-full bg-gradient-to-r from-neon-blue/60 to-neon-purple/60 group-hover:from-neon-blue/80 group-hover:to-neon-purple/80 transition-all"
-              style={{ width: `${(currentTime / duration) * 100}%` }}
-            />
-            <div 
-              className="absolute top-1/2 -translate-y-1/2 h-6 w-6 rounded-full bg-white shadow-neon cursor-grab hover:scale-110 transition-transform duration-200"
-              style={{ left: `calc(${(currentTime / duration) * 100}% - 12px)` }}
-            />
-          </div>
+        </motion.button>
+        
+        <div className="text-lg font-medium text-white/90 font-mono">
+          {formatTime(currentTime)} / {formatTime(duration)}
         </div>
+      </div>
 
-        <div className="flex gap-4">
-          <button
-            onClick={() => startPlayback(Math.max(0, currentTime - 10))}
-            className="glass-button p-4 rounded-full hover:scale-110 transition-all duration-300 bg-gradient-to-br from-neon-blue/10 to-neon-purple/10"
-            aria-label="Rewind 10 seconds"
-          >
-            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12.5 3L9 7l3.5 4V8c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6h-2c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8V3z"/>
-            </svg>
-          </button>
-          <button
-            onClick={() => startPlayback(Math.min(duration, currentTime + 10))}
-            className="glass-button p-4 rounded-full hover:scale-110 transition-all duration-300 bg-gradient-to-br from-neon-blue/10 to-neon-purple/10"
-            aria-label="Forward 10 seconds"
-          >
-            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M11.5 3l3.5 4-3.5 4V8c-3.3 0-6 2.7-6 6s2.7 6 6 6 6-2.7 6-6h2c0 4.4-3.6 8-8 8s-8-3.6-8-8 3.6-8 8-8V3z"/>
-            </svg>
-          </button>
-        </div>
+      <div
+        className="relative h-12 bg-dark-bg/40 rounded-full cursor-pointer overflow-hidden backdrop-blur-sm group"
+        ref={progressRef}
+        onClick={handleProgressClick}
+        role="slider"
+        aria-valuemin={0}
+        aria-valuemax={duration}
+        aria-valuenow={currentTime}
+      >
+        <motion.div 
+          className="absolute inset-0 flex items-center justify-around"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: isPlaying ? 1 : 0 }}
+        >
+          {[...Array(20)].map((_, index) => (
+            <motion.div
+              key={index}
+              className="w-1 bg-neon-blue/40 rounded-full"
+              animate={{ 
+                height: [8, 24, 8],
+                opacity: [0.3, 1, 0.3]
+              }}
+              transition={{
+                repeat: Infinity,
+                duration: 1,
+                delay: index * 0.05,
+                ease: "easeInOut"
+              }}
+            />
+          ))}
+        </motion.div>
+        
+        <motion.div 
+          className="absolute top-0 left-0 h-full bg-gradient-to-r from-neon-blue/60 to-neon-purple/60"
+          style={{ width: `${(currentTime / duration) * 100}%` }}
+          animate={{
+            boxShadow: isPlaying ? "0 0 20px rgba(0, 243, 255, 0.3)" : "none"
+          }}
+        />
+        
+        <motion.div 
+          className="absolute top-1/2 h-6 w-6 rounded-full bg-white shadow-neon cursor-grab"
+          style={{ 
+            left: `calc(${(currentTime / duration) * 100}%)`,
+            transform: 'translate(-50%, -50%)'
+          }}
+          initial={{ x: '-50%' }}
+          whileHover={{ scale: 1.2 }}
+          whileTap={{ scale: 0.95 }}
+          transformTemplate={({ scale, x }) => 
+            `translate(-50%, -50%) ${scale ? `scale(${scale})` : ''}`
+          }
+        />
+      </div>
+
+      <div className="flex justify-center gap-4 mt-4">
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => startPlayback(Math.max(0, currentTime - 10))}
+          className="p-3 rounded-full bg-gradient-to-r from-neon-blue/10 to-neon-purple/10 
+                     border border-neon-blue/20 shadow-neon hover:shadow-neon-hover"
+          aria-label="Rewind 10 seconds"
+        >
+          <Rewind className="w-5 h-5 text-white/90" />
+        </motion.button>
+        
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => startPlayback(Math.min(duration, currentTime + 10))}
+          className="p-3 rounded-full bg-gradient-to-r from-neon-blue/10 to-neon-purple/10 
+                     border border-neon-blue/20 shadow-neon hover:shadow-neon-hover"
+          aria-label="Forward 10 seconds"
+        >
+          <FastForward className="w-5 h-5 text-white/90" />
+        </motion.button>
       </div>
     </div>
   );
