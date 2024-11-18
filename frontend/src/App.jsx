@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { StopMotionPlayer } from './components/StopMotionPlayer';
 import CollapsibleStory from './components/CollapsibleStory';
 import AudioPlayer from './components/AudioPlayer'; // Add this import
+import { Analytics } from "@vercel/analytics/react";
 
 const GENRES = ["Fantasy", "Adventure", "Romance", "Horror", "Mystery", "Moral Story"];
 const STORY_LENGTHS = [
@@ -340,6 +341,7 @@ const App = () => {
           </div>
         )}
       </div>
+      <Analytics />
       <div className="fixed bottom-0 left-0 w-full pointer-events-none">
         {/* Subtle white core glow */}
         <div className="absolute bottom-0 w-full h-[10px] bg-gradient-to-t from-white to-transparent blur-[6px]" />
