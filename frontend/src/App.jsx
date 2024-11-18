@@ -18,7 +18,7 @@ const VOICE_TYPES = [
 ];
 
 // Update BACKEND_URL to use environment variable
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.REACT_APP_API_URL || 'https://story-generator-api.onrender.com';
 
 const FRAME_INTERVAL = 2; // seconds between frames
 

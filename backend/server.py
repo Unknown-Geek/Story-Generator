@@ -156,15 +156,23 @@ def retry_with_backoff(func, *args, **kwargs):
     raise last_exception
 
 app = Flask(__name__)
-# Optimize CORS configuration
-CORS(app, resources={r"/*": {"origins": "*"}})
+# Update CORS configuration
+CORS(app, resources={
+    r"/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "max_age": 3600
+    }
+})
 
 @app.after_request
 def after_request(response):
     response.headers.update({
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS'
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Max-Age': '3600'
     })
     return response
 
@@ -179,8 +187,18 @@ def handle_preflight():
         response.headers.add('Access-Control-Max-Age', '3600')
         return response
 
-@app.route('/generate_story', methods=['POST'])
+@app.route('/generate_story', methods=['POST', 'OPTIONS'])
 def generate_story():
+    if request.method == "OPTIONS":
+        response = make_response()
+        response.headers.update({
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+            'Access-Control-Max-Age': '3600'
+        })
+        return response
+
     """Generates a story based on image input using Gemini API"""
     try:
         if not check_gemini_rate_limit():
