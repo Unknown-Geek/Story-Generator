@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 
+// Add SDXL backend URL
+const SDXL_BACKEND_URL = process.env.REACT_APP_SDXL_BACKEND_URL;
+const RETRY_DELAY = 2000; // 2 seconds between retries
+const MAX_RETRIES = 3;
+
 const BACKEND_URL =
   process.env.REACT_APP_BACKEND_URL || "http://localhost:5000";
 // Reduce constants for better performance and less API load
@@ -17,6 +22,7 @@ export const StopMotionPlayer = ({
   story,
   currentNarrationTime,
   totalDuration,
+  sdxlUrl // Add this prop
 }) => {
   const [frames, setFrames] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -25,70 +31,81 @@ export const StopMotionPlayer = ({
   const frameQueue = useRef([]);
   const isGenerating = useRef(false);
 
-  const generateFrameBatch = useCallback(async () => {
-    if (frameQueue.current.length === 0 || isGenerating.current) return;
-
-    isGenerating.current = true;
-    const prompt = frameQueue.current[0]; // Process one at a time
-
+  const generateFrames = useCallback(async () => {
+    if (frameQueue.current.length === 0 || !sdxlUrl) return;
+    
     try {
-      const response = await fetch(`${BACKEND_URL}/generate_frame`, {
+      setLoading(true);
+      const prompt = frameQueue.current[0];
+      
+      const response = await fetch(`${sdxlUrl}/generate_image`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          prompt: `High quality cinematic frame: ${prompt}. Clear composition, dramatic lighting.`
+        })
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
       const data = await response.json();
       
-      if (data.success) {
+      if (data.success && data.image) {
         setFrames(prev => [...prev, data.image]);
-        frameQueue.current = frameQueue.current.slice(1);
+        frameQueue.current.shift(); // Remove processed prompt
+        
+        // Continue with next frame after a delay
+        if (frameQueue.current.length > 0) {
+          setTimeout(() => generateFrames(), BATCH_INTERVAL);
+        } else {
+          setLoading(false);
+        }
       } else {
-        console.error('Frame generation failed:', data.error);
+        throw new Error(data.error || 'Failed to generate image');
       }
     } catch (error) {
       console.error('Frame generation error:', error);
-      setError('Failed to generate frame. Retrying...');
-    } finally {
-      isGenerating.current = false;
+      // Retry failed frame after delay
+      setTimeout(() => generateFrames(), RETRY_DELAY);
     }
-  }, []);
+  }, [sdxlUrl]);
 
-  // Modify frame generation initialization
   useEffect(() => {
-    if (!story) return;
+    if (!story || !sdxlUrl) return;
 
-    setLoading(true);
-    setError("");
-    setFrames([]);
+    const initFrameGeneration = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        setFrames([]);
 
-    // Take fewer key sentences for frames
-    const sentences = story
-      .split(/(?<=[.!?])\s+/)
-      .filter((sentence) => sentence.trim().length > 20) // Only longer, meaningful sentences
-      .slice(0, MAX_FRAMES);
+        // Extract key scenes from story
+        const sentences = story
+          .split(/(?<=[.!?])\s+/)
+          .filter(s => s.length > 20)
+          .slice(0, MAX_FRAMES);
 
-    // Take evenly spaced sentences to cover the whole story
-    const stride = Math.max(1, Math.floor(sentences.length / MAX_FRAMES));
-    frameQueue.current = sentences.filter((_, i) => i % stride === 0);
+        // Process sentences into frame prompts
+        frameQueue.current = sentences.map(sentence => 
+          sentence.replace(/[^\w\s.]/g, '').trim()
+        );
 
-    const generateFrames = async () => {
-      while (frameQueue.current.length > 0) {
-        await generateFrameBatch();
-        if (frameQueue.current.length > 0) {
-          await new Promise((resolve) => setTimeout(resolve, BATCH_INTERVAL));
-        }
+        // Start frame generation
+        generateFrames();
+      } catch (error) {
+        console.error('Frame generation initialization error:', error);
+        setError('Failed to initialize frame generation');
+        setLoading(false);
       }
-      setLoading(false);
     };
 
-    generateFrames();
-
-    return () => {
-      frameQueue.current = [];
-      isGenerating.current = false;
-    };
-  }, [story, generateFrameBatch]);
+    initFrameGeneration();
+  }, [story, sdxlUrl, generateFrames]);
 
   // Smooth frame transition logic
   useEffect(() => {

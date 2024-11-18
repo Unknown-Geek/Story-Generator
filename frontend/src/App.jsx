@@ -37,6 +37,8 @@ const App = () => {
   const [useStopMotion, setUseStopMotion] = useState(false);
   const [currentNarrationTime, setCurrentNarrationTime] = useState(0);
   const [storyDuration, setStoryDuration] = useState(0);
+  const [sdxlUrl, setSdxlUrl] = useState('');
+  const [sdxlStatus, setSdxlStatus] = useState(''); // Add this state
 
   const handleImageUpload = (event) => {
     const file = event.target.files[0];
@@ -91,6 +93,57 @@ const App = () => {
     }
   };
 
+  const validateAndConnectSdxl = async (url) => {
+    setSdxlStatus('connecting');
+    try {
+      const cleanUrl = url.trim().replace(/\/$/, '');
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
+      const healthResponse = await fetch(`${cleanUrl}/health`, {
+        headers: {
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache'
+        },
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!healthResponse.ok) {
+        throw new Error(`Server returned ${healthResponse.status}`);
+      }
+
+      const healthData = await healthResponse.json();
+      console.log('Health check response:', healthData); // Add debugging
+      
+      if (!healthData.gpu_available || healthData.service !== 'sdxl' || healthData.status !== 'healthy') {
+        throw new Error('Invalid SDXL service response');
+      }
+
+      setSdxlStatus('connected');
+      setError('');
+      return true;
+    } catch (err) {
+      console.error('SDXL Connection error:', err);
+      setSdxlStatus('error');
+      setError(`Connection failed: ${err.message}`);
+      return false;
+    }
+  };
+
+  // Add URL input change handler
+  const handleSdxlUrlChange = async (e) => {
+    const url = e.target.value;
+    setSdxlUrl(url);
+    if (url) {
+      await validateAndConnectSdxl(url);
+    } else {
+      setSdxlStatus('');
+    }
+  };
+
   useEffect(() => {
     return () => {
       if (window.speechSynthesis.speaking) {
@@ -108,6 +161,63 @@ const App = () => {
 
         {/* Settings Panel */}
         <div className="bg-[rgba(10,10,31,0.8)] border border-neon-blue/10 rounded-lg p-6 mb-8 backdrop-blur-md shadow-neon">
+          {/* Add SDXL URL input and Colab button */}
+          {useStopMotion && (
+            <div className="mb-4 space-y-2">
+              <div className="flex gap-4 items-center">
+                <div className="flex-1 relative">
+                  <input
+                    type="text"
+                    placeholder="Enter SDXL Server URL (e.g., https://xxxx.trycloudflare.com)"
+                    value={sdxlUrl}
+                    onChange={handleSdxlUrlChange}
+                    className={`w-full p-2 rounded bg-dark-bg/50 border text-white 
+                      focus:ring-1 transition-all pr-10
+                      ${sdxlStatus === 'connected' ? 'border-green-500 focus:border-green-500 focus:ring-green-500/50' :
+                        sdxlStatus === 'error' ? 'border-red-500 focus:border-red-500 focus:ring-red-500/50' :
+                        'border-neon-blue/20 focus:border-neon-blue/50 focus:ring-neon-blue/50'}`}
+                  />
+                  {sdxlStatus && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      {sdxlStatus === 'connecting' && (
+                        <div className="loading-spinner w-5 h-5" />
+                      )}
+                      {sdxlStatus === 'connected' && (
+                        <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                      {sdxlStatus === 'error' && (
+                        <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <a
+                  href="https://colab.research.google.com/drive/1hc8G2WY_4P_0Tri-lZ0HmVDdX6MKy5LV?usp=sharing"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="glass-button px-4 py-2 flex items-center gap-2 whitespace-nowrap hover:bg-neon-blue/10"
+                >
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                  </svg>
+                  Open Colab
+                </a>
+              </div>
+              <p className="text-sm italic">
+                {sdxlStatus === 'connected' ? (
+                  <span className="text-green-400">Connected to SDXL service successfully!</span>
+                ) : sdxlStatus === 'error' ? (
+                  <span className="text-red-400">Failed to connect. Please check the URL and try again.</span>
+                ) : (
+                  <span className="text-neon-blue/70">Note: Run the Colab notebook to get your SDXL Server URL</span>
+                )}
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <select
               value={genre}
@@ -160,7 +270,7 @@ const App = () => {
                 className="form-checkbox h-5 w-5 text-neon-blue rounded border-neon-blue/20 
                           focus:ring-neon-blue/50 focus:ring-2 bg-dark-bg/50"
               />
-              <span className="text-white">Enable Stop Motion Animation (Uses more resources)</span>
+              <span className="text-white">Enable Image Frames (Uses more resources)</span>
             </label>
           </div>
         </div>
@@ -217,6 +327,7 @@ const App = () => {
                 story={story}
                 currentNarrationTime={currentNarrationTime}
                 totalDuration={storyDuration}
+                sdxlUrl={sdxlUrl} // Pass URL to StopMotionPlayer
               />
             )}
             <AudioPlayer 
@@ -231,7 +342,7 @@ const App = () => {
       </div>
       <div className="fixed bottom-0 left-0 w-full pointer-events-none">
         {/* Subtle white core glow */}
-        <div className="absolute bottom-0 w-full h-[8px] bg-gradient-to-t from-white to-transparent blur-[6px]" />
+        <div className="absolute bottom-0 w-full h-[10px] bg-gradient-to-t from-white to-transparent blur-[6px]" />
         
         {/* Layered soft blue glows */}
         <div className="absolute bottom-0 w-full h-[30px] bg-gradient-to-t from-neon-blue/25 via-neon-blue/10 to-transparent blur-[10px]" />
@@ -240,7 +351,7 @@ const App = () => {
         <div className="absolute bottom-0 w-full h-[200px] bg-gradient-to-t from-neon-blue/10 via-neon-blue/3 to-transparent blur-[50px]" />
         
         {/* Ultra-soft ambient glow */}
-        <div className="absolute bottom-0 w-full h-[300px] bg-gradient-to-t from-neon-blue/5 via-neon-blue/2 to-transparent blur-[80px]" />
+        <div className="absolute bottom-0 w-full h-[250px] bg-gradient-to-t from-neon-blue/5 via-neon-blue/2 to-transparent blur-[80px]" />
       </div>
     </div>
   );
