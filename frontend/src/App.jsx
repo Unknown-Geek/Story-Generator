@@ -97,42 +97,136 @@ const App = () => {
   const validateAndConnectSdxl = async (url) => {
     setSdxlStatus('connecting');
     try {
-      const cleanUrl = url.trim().replace(/\/$/, '');
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
-      const healthResponse = await fetch(`${cleanUrl}/health`, {
-        headers: {
-          'Accept': 'application/json',
-          'Cache-Control': 'no-cache'
-        },
-        signal: controller.signal
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!healthResponse.ok) {
-        throw new Error(`Server returned ${healthResponse.status}`);
-      }
+        let cleanUrl = url.trim().replace(/\/$/, '');
+        if (!cleanUrl.startsWith('http')) {
+            cleanUrl = `http://${cleanUrl}`;
+        }
 
-      const healthData = await healthResponse.json();
-      console.log('Health check response:', healthData); // Add debugging
-      
-      if (!healthData.gpu_available || healthData.service !== 'sdxl' || healthData.status !== 'healthy') {
-        throw new Error('Invalid SDXL service response');
-      }
+        // First check pipeline status
+        const statusCheck = async () => {
+            const response = await fetch(`${cleanUrl}/pipeline_status`, {
+                headers: {
+                    'Accept': 'application/json'
+                },
+                credentials: 'omit'
+            });
 
-      setSdxlStatus('connected');
-      setError('');
-      return true;
+            if (!response.ok) {
+                throw new Error('Pipeline status check failed');
+            }
+
+            const data = await response.json();
+            return data.initialized;
+        };
+
+        // Wait for pipeline initialization with timeout
+        const waitForPipeline = async (timeout = 60000) => {
+            const startTime = Date.now();
+            while (Date.now() - startTime < timeout) {
+                const isInitialized = await statusCheck();
+                if (isInitialized) {
+                    return true;
+                }
+                await new Promise(resolve => setTimeout(resolve, 5000)); // Check every 5 seconds
+            }
+            throw new Error('Pipeline initialization timeout');
+        };
+
+        // Execute validation sequence
+        const isPipelineReady = await waitForPipeline();
+        if (!isPipelineReady) {
+            throw new Error('Pipeline failed to initialize');
+        }
+
+        // Rest of your validation code...
+        const healthCheck = async () => {
+            const response = await fetch(`${cleanUrl}/health`, {
+                headers: {
+                    'Accept': 'application/json',
+                    'Cache-Control': 'no-cache'
+                },
+                credentials: 'omit',
+                mode: 'cors'
+            });
+
+            if (!response.ok) {
+                throw new Error(`Health check failed: ${response.status}`);
+            }
+
+            const data = await response.json();
+            return data.status === 'healthy' && data.gpu_available;
+        };
+
+        // Verify pipeline initialization
+        const verifyPipeline = async () => {
+            const testBody = JSON.stringify({
+                prompt: "test: simple circle"
+            });
+
+            // Try multiple times with increasing delays
+            for (let i = 0; i < 3; i++) {
+                try {
+                    const response = await fetch(`${cleanUrl}/generate_image`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: testBody,
+                        credentials: 'omit'
+                    });
+
+                    const data = await response.json();
+                    
+                    if (data.error?.includes('Pipeline not initialized')) {
+                        await new Promise(resolve => setTimeout(resolve, 5000 * (i + 1)));
+                        continue;
+                    }
+
+                    return true;
+                } catch (err) {
+                    if (err.message.includes('502') || err.message.includes('Gateway')) {
+                        await new Promise(resolve => setTimeout(resolve, 5000 * (i + 1)));
+                        continue;
+                    }
+                    throw err;
+                }
+            }
+            
+            throw new Error('Pipeline initialization timeout');
+        };
+
+        // Execute checks in sequence
+        const isHealthy = await healthCheck();
+        if (!isHealthy) {
+            throw new Error('Server is not healthy');
+        }
+
+        await verifyPipeline();
+
+        setSdxlStatus('connected');
+        setError('');
+        return true;
+
     } catch (err) {
-      console.error('SDXL Connection error:', err);
-      setSdxlStatus('error');
-      setError(`Connection failed: ${err.message}`);
-      return false;
+        console.warn('Connection error:', err);
+        setSdxlStatus('error');
+        
+        let errorMsg;
+        if (err.message.includes('Pipeline')) {
+            errorMsg = 'Server is starting up. Please wait 30-60 seconds and try again.';
+        } else if (err.message.includes('502')) {
+            errorMsg = 'Server is temporarily unavailable. Please try again in a moment.';
+        } else if (err.message.includes('timeout')) {
+            errorMsg = 'Server is still initializing. Please wait a minute and try again.';
+        } else {
+            errorMsg = err.message;
+        }
+        
+        setError(`Connection failed: ${errorMsg}`);
+        return false;
     }
-  };
+};
 
   // Add URL input change handler
   const handleSdxlUrlChange = async (e) => {

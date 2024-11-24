@@ -34,46 +34,76 @@ export const StopMotionPlayer = ({
   const generateFrames = useCallback(async () => {
     if (frameQueue.current.length === 0 || !sdxlUrl) return;
     
-    try {
-      setLoading(true);
-      const prompt = frameQueue.current[0];
-      
-      const response = await fetch(`${sdxlUrl}/generate_image`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({
-          prompt: `High quality cinematic frame: ${prompt}. Clear composition, dramatic lighting.`
-        })
-      });
+    let retryCount = 0;
+    while (retryCount < MAX_RETRIES) {
+        try {
+            setLoading(true);
+            const prompt = frameQueue.current[0];
+            
+            // Add URL validation and cleanup
+            const cleanUrl = sdxlUrl.trim().replace(/\/$/, '');
+            if (!cleanUrl.startsWith('http')) {
+                throw new Error('Invalid URL format');
+            }
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+            const response = await fetch(`${cleanUrl}/generate_image`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    prompt: `High quality cinematic frame: ${prompt}. Clear composition, dramatic lighting.`
+                }),
+                // Add timeout and credentials
+                timeout: REQUEST_TIMEOUT,
+                credentials: 'omit'
+            });
 
-      const data = await response.json();
-      
-      if (data.success && data.image) {
-        setFrames(prev => [...prev, data.image]);
-        frameQueue.current.shift(); // Remove processed prompt
-        
-        // Continue with next frame after a delay
-        if (frameQueue.current.length > 0) {
-          setTimeout(() => generateFrames(), BATCH_INTERVAL);
-        } else {
-          setLoading(false);
+            // Handle localtunnel specific status codes
+            if (response.status === 504) {
+                throw new Error('Gateway timeout - server may be overloaded');
+            }
+            if (response.status === 525) {
+                throw new Error('SSL handshake failed');
+            }
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            
+            if (data.success && data.image) {
+                setFrames(prev => [...prev, data.image]);
+                frameQueue.current.shift();
+                if (frameQueue.current.length > 0) {
+                    setTimeout(() => generateFrames(), BATCH_INTERVAL);
+                } else {
+                    setLoading(false);
+                }
+                return;
+            } else {
+                throw new Error(data.error || 'Failed to generate image');
+            }
+        } catch (error) {
+            console.warn(`Frame generation attempt ${retryCount + 1} failed:`, error);
+            retryCount++;
+            if (retryCount < MAX_RETRIES) {
+                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * Math.pow(2, retryCount)));
+            } else {
+                const friendlyError = error.message.includes('Gateway timeout') 
+                    ? 'Server is busy. Please try again in a few moments.'
+                    : error.message.includes('SSL') 
+                        ? 'Connection security issue. Try using http:// instead of https://'
+                        : `Failed to generate frame: ${error.message}`;
+                setError(friendlyError);
+                setLoading(false);
+                return;
+            }
         }
-      } else {
-        throw new Error(data.error || 'Failed to generate image');
-      }
-    } catch (error) {
-      console.error('Frame generation error:', error);
-      // Retry failed frame after delay
-      setTimeout(() => generateFrames(), RETRY_DELAY);
     }
-  }, [sdxlUrl]);
+}, [sdxlUrl]);
 
   useEffect(() => {
     if (!story || !sdxlUrl) return;

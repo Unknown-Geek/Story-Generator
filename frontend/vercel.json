@@ -1,9 +1,19 @@
-
 {
   "buildCommand": "npm run vercel-build",
-  "installCommand": "npm install",
+  "installCommand": "npm install --legacy-peer-deps",
   "framework": "create-react-app",
   "outputDirectory": "build",
+  "git": {
+    "deploymentEnabled": {
+      "main": true
+    }
+  },
+  "domains": [
+    {
+      "domain": "story-generator.vercel.app",
+      "type": "primary"
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/(.*)",
