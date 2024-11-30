@@ -1,18 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 
-// Add SDXL backend URL
-const SDXL_BACKEND_URL = process.env.REACT_APP_SDXL_BACKEND_URL;
 const RETRY_DELAY = 2000; // 2 seconds between retries
 const MAX_RETRIES = 3;
 
 const BACKEND_URL =
   process.env.REACT_APP_BACKEND_URL || "http://localhost:5000";
-// Reduce constants for better performance and less API load
-const FPS = 2; // Reduced from 4
+// Update constants for better performance
+const FPS = 12;
 const FRAME_TIME = 1000 / FPS;
-const MAX_FRAMES = 8; // Reduced from 16
-const BATCH_SIZE = 1; // Process one frame at a time
-const BATCH_INTERVAL = 10000; // 10 seconds between batches
+const MAX_FRAMES = 24; // 2 seconds of animation at 12fps
+const BATCH_SIZE = 2; // Process two frames at a time
+const BATCH_INTERVAL = 5000; // 5 seconds between batches
 const REQUEST_TIMEOUT = 15000; // 15 second timeout for requests
 
 // Add request caching
@@ -21,8 +19,7 @@ const frameCache = new Map();
 export const StopMotionPlayer = ({
   story,
   currentNarrationTime,
-  totalDuration,
-  sdxlUrl // Add this prop
+  totalDuration
 }) => {
   const [frames, setFrames] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -32,81 +29,47 @@ export const StopMotionPlayer = ({
   const isGenerating = useRef(false);
 
   const generateFrames = useCallback(async () => {
-    if (frameQueue.current.length === 0 || !sdxlUrl) return;
+    if (frameQueue.current.length === 0) return;
     
-    let retryCount = 0;
-    while (retryCount < MAX_RETRIES) {
-        try {
-            setLoading(true);
-            const prompt = frameQueue.current[0];
-            
-            // Add URL validation and cleanup
-            const cleanUrl = sdxlUrl.trim().replace(/\/$/, '');
-            if (!cleanUrl.startsWith('http')) {
-                throw new Error('Invalid URL format');
-            }
+    try {
+      setLoading(true);
+      const prompt = frameQueue.current[0];
+      
+      const response = await fetch(`${BACKEND_URL}/generate_frame`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          prompt: prompt
+        })
+      });
 
-            const response = await fetch(`${cleanUrl}/generate_image`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({
-                    prompt: `High quality cinematic frame: ${prompt}. Clear composition, dramatic lighting.`
-                }),
-                // Add timeout and credentials
-                timeout: REQUEST_TIMEOUT,
-                credentials: 'omit'
-            });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
-            // Handle localtunnel specific status codes
-            if (response.status === 504) {
-                throw new Error('Gateway timeout - server may be overloaded');
-            }
-            if (response.status === 525) {
-                throw new Error('SSL handshake failed');
-            }
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-            
-            if (data.success && data.image) {
-                setFrames(prev => [...prev, data.image]);
-                frameQueue.current.shift();
-                if (frameQueue.current.length > 0) {
-                    setTimeout(() => generateFrames(), BATCH_INTERVAL);
-                } else {
-                    setLoading(false);
-                }
-                return;
-            } else {
-                throw new Error(data.error || 'Failed to generate image');
-            }
-        } catch (error) {
-            console.warn(`Frame generation attempt ${retryCount + 1} failed:`, error);
-            retryCount++;
-            if (retryCount < MAX_RETRIES) {
-                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * Math.pow(2, retryCount)));
-            } else {
-                const friendlyError = error.message.includes('Gateway timeout') 
-                    ? 'Server is busy. Please try again in a few moments.'
-                    : error.message.includes('SSL') 
-                        ? 'Connection security issue. Try using http:// instead of https://'
-                        : `Failed to generate frame: ${error.message}`;
-                setError(friendlyError);
-                setLoading(false);
-                return;
-            }
+      const data = await response.json();
+      
+      if (data.success) {
+        setFrames(prev => [...prev, data.image]);
+        frameQueue.current.shift();
+        if (frameQueue.current.length > 0) {
+          setTimeout(() => generateFrames(), BATCH_INTERVAL);
+        } else {
+          setLoading(false);
         }
+      } else {
+        throw new Error(data.error || 'Failed to generate image');
+      }
+    } catch (error) {
+      setError(`Failed to generate frame: ${error.message}`);
+      setLoading(false);
     }
-}, [sdxlUrl]);
+  }, []);
 
   useEffect(() => {
-    if (!story || !sdxlUrl) return;
+    if (!story) return;
 
     const initFrameGeneration = async () => {
       try {
@@ -135,7 +98,7 @@ export const StopMotionPlayer = ({
     };
 
     initFrameGeneration();
-  }, [story, sdxlUrl, generateFrames]);
+  }, [story, generateFrames]);
 
   // Smooth frame transition logic
   useEffect(() => {

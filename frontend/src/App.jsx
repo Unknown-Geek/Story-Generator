@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { StopMotionPlayer } from './components/StopMotionPlayer';
 import CollapsibleStory from './components/CollapsibleStory';
 import AudioPlayer from './components/AudioPlayer'; // Add this import
@@ -38,8 +38,6 @@ const App = () => {
   const [useStopMotion, setUseStopMotion] = useState(false);
   const [currentNarrationTime, setCurrentNarrationTime] = useState(0);
   const [storyDuration, setStoryDuration] = useState(0);
-  const [sdxlUrl, setSdxlUrl] = useState('');
-  const [sdxlStatus, setSdxlStatus] = useState(''); // Add this state
 
   const handleImageUpload = (event) => {
     const file = event.target.files[0];
@@ -94,150 +92,17 @@ const App = () => {
     }
   };
 
-  const validateAndConnectSdxl = async (url) => {
-    setSdxlStatus('connecting');
-    try {
-        let cleanUrl = url.trim().replace(/\/$/, '');
-        if (!cleanUrl.startsWith('http')) {
-            cleanUrl = `http://${cleanUrl}`;
-        }
+  // Update handleSdxlUrlChange to use debouncing
+  const connectionCheckRef = useRef(null);
 
-        // First check pipeline status
-        const statusCheck = async () => {
-            const response = await fetch(`${cleanUrl}/pipeline_status`, {
-                headers: {
-                    'Accept': 'application/json'
-                },
-                credentials: 'omit'
-            });
-
-            if (!response.ok) {
-                throw new Error('Pipeline status check failed');
-            }
-
-            const data = await response.json();
-            return data.initialized;
-        };
-
-        // Wait for pipeline initialization with timeout
-        const waitForPipeline = async (timeout = 60000) => {
-            const startTime = Date.now();
-            while (Date.now() - startTime < timeout) {
-                const isInitialized = await statusCheck();
-                if (isInitialized) {
-                    return true;
-                }
-                await new Promise(resolve => setTimeout(resolve, 5000)); // Check every 5 seconds
-            }
-            throw new Error('Pipeline initialization timeout');
-        };
-
-        // Execute validation sequence
-        const isPipelineReady = await waitForPipeline();
-        if (!isPipelineReady) {
-            throw new Error('Pipeline failed to initialize');
-        }
-
-        // Rest of your validation code...
-        const healthCheck = async () => {
-            const response = await fetch(`${cleanUrl}/health`, {
-                headers: {
-                    'Accept': 'application/json',
-                    'Cache-Control': 'no-cache'
-                },
-                credentials: 'omit',
-                mode: 'cors'
-            });
-
-            if (!response.ok) {
-                throw new Error(`Health check failed: ${response.status}`);
-            }
-
-            const data = await response.json();
-            return data.status === 'healthy' && data.gpu_available;
-        };
-
-        // Verify pipeline initialization
-        const verifyPipeline = async () => {
-            const testBody = JSON.stringify({
-                prompt: "test: simple circle"
-            });
-
-            // Try multiple times with increasing delays
-            for (let i = 0; i < 3; i++) {
-                try {
-                    const response = await fetch(`${cleanUrl}/generate_image`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json'
-                        },
-                        body: testBody,
-                        credentials: 'omit'
-                    });
-
-                    const data = await response.json();
-                    
-                    if (data.error?.includes('Pipeline not initialized')) {
-                        await new Promise(resolve => setTimeout(resolve, 5000 * (i + 1)));
-                        continue;
-                    }
-
-                    return true;
-                } catch (err) {
-                    if (err.message.includes('502') || err.message.includes('Gateway')) {
-                        await new Promise(resolve => setTimeout(resolve, 5000 * (i + 1)));
-                        continue;
-                    }
-                    throw err;
-                }
-            }
-            
-            throw new Error('Pipeline initialization timeout');
-        };
-
-        // Execute checks in sequence
-        const isHealthy = await healthCheck();
-        if (!isHealthy) {
-            throw new Error('Server is not healthy');
-        }
-
-        await verifyPipeline();
-
-        setSdxlStatus('connected');
-        setError('');
-        return true;
-
-    } catch (err) {
-        console.warn('Connection error:', err);
-        setSdxlStatus('error');
-        
-        let errorMsg;
-        if (err.message.includes('Pipeline')) {
-            errorMsg = 'Server is starting up. Please wait 30-60 seconds and try again.';
-        } else if (err.message.includes('502')) {
-            errorMsg = 'Server is temporarily unavailable. Please try again in a moment.';
-        } else if (err.message.includes('timeout')) {
-            errorMsg = 'Server is still initializing. Please wait a minute and try again.';
-        } else {
-            errorMsg = err.message;
-        }
-        
-        setError(`Connection failed: ${errorMsg}`);
-        return false;
-    }
-};
-
-  // Add URL input change handler
-  const handleSdxlUrlChange = async (e) => {
-    const url = e.target.value;
-    setSdxlUrl(url);
-    if (url) {
-      await validateAndConnectSdxl(url);
-    } else {
-      setSdxlStatus('');
-    }
-  };
+  // Add cleanup effect
+  useEffect(() => {
+    return () => {
+      if (connectionCheckRef.current) {
+        clearTimeout(connectionCheckRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -256,63 +121,6 @@ const App = () => {
 
         {/* Settings Panel */}
         <div className="bg-[rgba(10,10,31,0.8)] border border-neon-blue/10 rounded-lg p-6 mb-8 backdrop-blur-md shadow-neon">
-          {/* Add SDXL URL input and Colab button */}
-          {useStopMotion && (
-            <div className="mb-4 space-y-2">
-              <div className="flex gap-4 items-center">
-                <div className="flex-1 relative">
-                  <input
-                    type="text"
-                    placeholder="Enter SDXL Server URL (e.g., https://xxxx.trycloudflare.com)"
-                    value={sdxlUrl}
-                    onChange={handleSdxlUrlChange}
-                    className={`w-full p-2 rounded bg-dark-bg/50 border text-white 
-                      focus:ring-1 transition-all pr-10
-                      ${sdxlStatus === 'connected' ? 'border-green-500 focus:border-green-500 focus:ring-green-500/50' :
-                        sdxlStatus === 'error' ? 'border-red-500 focus:border-red-500 focus:ring-red-500/50' :
-                        'border-neon-blue/20 focus:border-neon-blue/50 focus:ring-neon-blue/50'}`}
-                  />
-                  {sdxlStatus && (
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                      {sdxlStatus === 'connecting' && (
-                        <div className="loading-spinner w-5 h-5" />
-                      )}
-                      {sdxlStatus === 'connected' && (
-                        <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                      {sdxlStatus === 'error' && (
-                        <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <a
-                  href="https://colab.research.google.com/drive/1hc8G2WY_4P_0Tri-lZ0HmVDdX6MKy5LV?usp=sharing"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="glass-button px-4 py-2 flex items-center gap-2 whitespace-nowrap hover:bg-neon-blue/10"
-                >
-                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
-                  </svg>
-                  Open Colab
-                </a>
-              </div>
-              <p className="text-sm italic">
-                {sdxlStatus === 'connected' ? (
-                  <span className="text-green-400">Connected to SDXL service successfully!</span>
-                ) : sdxlStatus === 'error' ? (
-                  <span className="text-red-400">Failed to connect. Please check the URL and try again.</span>
-                ) : (
-                  <span className="text-neon-blue/70">Note: Run the Colab notebook to get your SDXL Server URL</span>
-                )}
-              </p>
-            </div>
-          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <select
               value={genre}
@@ -365,7 +173,7 @@ const App = () => {
                 className="form-checkbox h-5 w-5 text-neon-blue rounded border-neon-blue/20 
                           focus:ring-neon-blue/50 focus:ring-2 bg-dark-bg/50"
               />
-              <span className="text-white">Enable Image Frames (Uses more resources)</span>
+              <span className="text-white">Enable Image Frames</span>
             </label>
           </div>
         </div>
@@ -422,7 +230,6 @@ const App = () => {
                 story={story}
                 currentNarrationTime={currentNarrationTime}
                 totalDuration={storyDuration}
-                sdxlUrl={sdxlUrl} // Pass URL to StopMotionPlayer
               />
             )}
             <AudioPlayer 

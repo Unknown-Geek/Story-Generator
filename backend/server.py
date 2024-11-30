@@ -1,22 +1,24 @@
 """
 AI-powered Story Generator Server
-Handles story generation and frame animation using Gemini and Stability AI APIs
+Handles story generation using Gemini API and image generation using SDXL-Lightning
 """
 
 from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
-import requests
-import base64
+import requests  # Add this import
 import logging
 import os
+import time  # Add this for sleep function
 from PIL import Image
 import google.generativeai as genai
 from dotenv import load_dotenv
 from io import BytesIO
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta  # Add timedelta
 from collections import deque
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor
+from gradio_client import Client
+import base64
 
 # Load environment variables
 load_dotenv()
@@ -128,7 +130,7 @@ def check_gemini_rate_limit():
     window_start = now - timedelta(seconds=GEMINI_RATE_LIMIT_WINDOW)
     
     with gemini_rate_limit_lock:
-        while gemini_request_times and gemini_request_times[0] < window_start:
+        while gemini_request_times and request_times[0] < window_start:
             gemini_request_times.popleft()
         
         if len(gemini_request_times) >= GEMINI_MAX_REQUESTS:
@@ -281,213 +283,51 @@ def clean_old_frames():
 # Add parallel processing for frame generation
 executor = ThreadPoolExecutor(max_workers=4)
 
-# Update rate limiting configuration for Stability API
-STABILITY_RATE_LIMIT_WINDOW = 60  # Increase to 60 seconds
-STABILITY_MAX_REQUESTS = 50  # Reduce max requests
-STABILITY_RETRY_DELAYS = [5, 10, 20, 30, 60]  # Longer delays between retries
-STABILITY_KEY_COOLDOWN = {}  # Track per-key cooldown
-stability_request_times = deque()
-stability_rate_limit_lock = Lock()
-
-def check_stability_rate_limit():
-    """Check if we're within Stability API rate limits"""
-    now = datetime.now()
-    window_start = now - timedelta(seconds=STABILITY_RATE_LIMIT_WINDOW)
-    
-    with stability_rate_limit_lock:
-        while stability_request_times and stability_request_times[0] < window_start:
-            stability_request_times.popleft()
-        
-        if len(stability_request_times) >= STABILITY_MAX_REQUESTS:
-            return False
-        
-        stability_request_times.append(now)
-        return True
-
-# Add after the existing configurations
-STABILITY_API_KEYS = [
-    os.getenv('STABILITY_API_KEY_1'),
-    os.getenv('STABILITY_API_KEY_2'),
-    os.getenv('STABILITY_API_KEY_3')
-]
-STABILITY_API_KEYS = [key for key in STABILITY_API_KEYS if key]  # Remove any None values
-current_api_key_index = 0
-
-def get_next_stability_api_key():
-    """Rotate through available API keys"""
-    global current_api_key_index
-    if not STABILITY_API_KEYS:
-        raise Exception("No Stability API keys configured")
-    
-    api_key = STABILITY_API_KEYS[current_api_key_index]
-    current_api_key_index = (current_api_key_index + 1) % len(STABILITY_API_KEYS)
-    return api_key
-
-# Modify the Stability API request function to be synchronous
-def try_stability_request(prompt, retries=3):
-    """Try request with different API keys if one fails"""
-    last_error = None
-    
-    for attempt in range(retries):
-        try:
-            api_key = get_next_stability_api_key()
-            
-            # Check if key is in cooldown
-            cooldown_time = STABILITY_KEY_COOLDOWN.get(api_key)
-            if cooldown_time and datetime.now() < cooldown_time:
-                logger.warning(f"API key in cooldown, trying next key")
-                continue
-                
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Accept": "application/json",
-                "Content-Type": "application/json"
-            }
-            
-            payload = {
-                "text_prompts": [{"text": prompt, "weight": 1}],
-                "cfg_scale": 6,
-                "height": FRAME_IMAGE_SIZE,
-                "width": FRAME_IMAGE_SIZE,
-                "samples": 1,
-                "steps": 15,
-                "style_preset": "digital-art"
-            }
-
-            response = requests.post(
-                "https://api.stability.ai/v1/generation/stable-diffusion-v1-6/text-to-image",
-                headers=headers,
-                json=payload,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                return response.json()
-            elif response.status_code == 429:  # Rate limit hit
-                # Put key in cooldown for 60 seconds
-                STABILITY_KEY_COOLDOWN[api_key] = datetime.now() + timedelta(seconds=60)
-                delay = STABILITY_RETRY_DELAYS[min(attempt, len(STABILITY_RETRY_DELAYS)-1)]
-                logger.warning(f"Rate limit hit, cooling down key for 60s and waiting {delay}s")
-                time.sleep(delay)
-                continue
-            else:
-                response.raise_for_status()
-                
-        except Exception as e:
-            last_error = e
-            logger.warning(f"API key failed, trying next one. Error: {str(e)}")
-            
-            # Add delay between attempts
-            delay = STABILITY_RETRY_DELAYS[min(attempt, len(STABILITY_RETRY_DELAYS)-1)]
-            time.sleep(delay)
-            continue
-            
-    raise last_error or Exception("All API keys failed")
+# Initialize SDXL-Lightning client
+sdxl_client = Client("ByteDance/SDXL-Lightning")
 
 # Modify the generate_frame route
 @app.route('/generate_frame', methods=['POST'])
 def generate_frame():
-    """Generates animation frames using Stability AI API with failover"""
+    """Generates image frames using SDXL-Lightning"""
     try:
-        # More strict rate limiting
-        if not check_rate_limit() or not check_stability_rate_limit():
-            return jsonify({
-                'success': False, 
-                'error': 'Rate limit exceeded. Please wait 60 seconds and try again.'
-            }), 429
-
         data = request.json
         if not data or 'prompt' not in data:
             return jsonify({'success': False, 'error': 'No prompt provided'}), 400
 
         prompt = data['prompt']
-        prompt_hash = hash(prompt)  # Use prompt hash as cache key
-
-        # Check cache first
-        if prompt_hash in frame_cache:
-            cached_frame = frame_cache[prompt_hash]
-            # Update timestamp to mark as recently used
-            cached_frame['timestamp'] = datetime.now()
+        
+        # Generate image using SDXL-Lightning
+        try:
+            result = sdxl_client.predict(
+                prompt=prompt,
+                ckpt="4-Step",  # You can adjust steps based on speed/quality needs
+                api_name="/generate_image"
+            )
+            
+            # Convert the local file path to base64
+            with open(result, 'rb') as image_file:
+                image_data = base64.b64encode(image_file.read()).decode('utf-8')
+            
             return jsonify({
                 'success': True,
-                'image': cached_frame['image'],
-                'cached': True
+                'image': f"data:image/png;base64,{image_data}"
             })
-
-        # Add family-friendly modifiers to prompt
-        safe_prompt = f"family-friendly, child-appropriate, non-violent, cute, {prompt}"
-
-        # Stability API configuration with reduced image size
-        API_URL = "https://api.stability.ai/v1/generation/stable-diffusion-v1-6/text-to-image"
-        
-        headers = {
-            "Authorization": f"Bearer {os.getenv('STABILITY_API_KEY')}",
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        }
-
-        # Optimize payload for faster generation
-        payload = {
-            "text_prompts": [
-                {
-                    "text": safe_prompt,
-                    "weight": 1
-                }
-            ],
-            "cfg_scale": 6,  # Slightly reduced for faster generation
-            "height": FRAME_IMAGE_SIZE,
-            "width": FRAME_IMAGE_SIZE,
-            "samples": 1,
-            "steps": 15,  # Further reduced steps for faster generation
-            "style_preset": "digital-art"
-        }
-
-        try:
-            result = try_stability_request(safe_prompt)
-            if "artifacts" in result and len(result["artifacts"]) > 0:
-                img_data = result["artifacts"][0]["base64"]
-                image_url = f'data:image/png;base64,{img_data}'
-                
-                # Cache the generated frame
-                frame_cache[prompt_hash] = {
-                    'image': image_url,
-                    'timestamp': datetime.now()
-                }
-                
-                # Clean old frames if needed
-                clean_old_frames()
-                
-                return jsonify({
-                    'success': True,
-                    'image': image_url,
-                    'cached': False
-                })
-            else:
-                raise Exception("No image generated in response")
-                
+            
         except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Stability API error with all keys: {error_msg}")
-            return jsonify({
-                'success': False,
-                'error': f'Image generation failed: {error_msg}'
-            }), 500
+            raise Exception(f"SDXL-Lightning generation failed: {str(e)}")
 
     except Exception as e:
         logger.error(f"Frame generation error: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# Update health check to monitor all API keys
+# Simplify health check to remove SDXL server check
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({
         'status': 'healthy',
         'services': {
             'gemini': bool(os.getenv("GOOGLE_API_KEY")),
-            'stability': {
-                'available_keys': len(STABILITY_API_KEYS),
-                'status': bool(STABILITY_API_KEYS)
-            }
         }
     })
 

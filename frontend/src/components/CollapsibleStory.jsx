@@ -20,7 +20,7 @@ const CollapsibleStory = memo(({ story }) => {
   };
 
   return (
-    <div className="story-collapsible mt-6 overflow-visible">
+    <div className="story-collapsible mt-8 overflow-visible">
       <button 
         className="glass-button w-full text-left p-4 rounded-lg hover:scale-[1.02] transition-all duration-300 overflow-visible relative z-10"
         onClick={toggleExpand}

@@ -3,6 +3,8 @@ import { motion } from 'framer-motion';
 import { Play, Pause, Rewind, FastForward } from 'lucide-react';
 
 const AudioPlayer = ({ story, voiceSettings, onTimeUpdate, initialTime }) => {
+  const TEXT_PREVIEW_OFFSET = -0.5;
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(initialTime || 0);
   const [duration, setDuration] = useState(0);
@@ -23,9 +25,13 @@ const AudioPlayer = ({ story, voiceSettings, onTimeUpdate, initialTime }) => {
   };
 
   const getCurrentSentence = (text, position) => {
+    if (!text || !duration) return '';
+    
+    // Add preview offset to position
+    const previewPosition = Math.max(position + TEXT_PREVIEW_OFFSET, 0);
     const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
     const totalLength = text.length;
-    const currentPosition = Math.floor((position / duration) * totalLength);
+    const currentPosition = Math.floor((previewPosition / duration) * totalLength);
     
     let accumulatedLength = 0;
     for (let sentence of sentences) {
