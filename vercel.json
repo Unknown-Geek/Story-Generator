@@ -2,7 +2,7 @@
   "buildCommand": "cd frontend && npm install --legacy-peer-deps && npm run vercel-build",
   "installCommand": "npm install",
   "framework": "create-react-app",
-  "outputDirectory": "build",
+  "outputDirectory": "frontend/build",
   "rewrites": [
     {
       "source": "/api/(.*)",
