@@ -1,0 +1,18 @@
+{
+  "name": "story-generator-root",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "install-deps": "cd frontend && npm install --legacy-peer-deps",
+    "start": "cd frontend && npm start",
+    "build": "cd frontend && npm run build",
+    "vercel-build": "cd frontend && npm install --legacy-peer-deps && npm run vercel-build"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
