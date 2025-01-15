@@ -176,7 +176,10 @@ app = Flask(__name__)
 # Update CORS configuration
 CORS(app, resources={
     r"/*": {
-        "origins": "*",
+        "origins": [
+            "https://storygeneratorfrontend.vercel.app",
+            "http://localhost:3000"
+        ],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"],
         "max_age": 3600
