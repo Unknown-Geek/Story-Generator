@@ -5,12 +5,15 @@
   "outputDirectory": "frontend/build",
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
+      "source": "/api/:path*",
+      "destination": "https://story-generator-api.onrender.com/:path*"
     },
     {
       "source": "/(.*)",
       "destination": "/index.html"
     }
-  ]
+  ],
+  "env": {
+    "REACT_APP_API_URL": "https://story-generator-api.onrender.com"
+  }
 }
