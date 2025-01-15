@@ -33,6 +33,7 @@
     "deploy": "gh-pages -d build",
     "vercel-build": "npm run build && npm run build:tailwind"
   },
+  "proxy": "http://localhost:5000",
   "browserslist": {
     "production": [
       ">0.2%",

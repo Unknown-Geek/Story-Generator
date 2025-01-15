@@ -19,13 +19,28 @@ from threading import Lock
 from concurrent.futures import ThreadPoolExecutor
 from gradio_client import Client
 import base64
+from queue import Queue
+import asyncio
+import aiohttp
+from huggingface_hub import login
+
+# Move logger configuration before any logger usage
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
-load_dotenv()
+load_dotenv(dotenv_path='../.env')
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+# Initialize Hugging Face authentication
+hf_token = os.getenv("HUGGINGFACE_API_KEY")  # Changed from HUGGING_FACE_TOKEN
+if hf_token:
+    login(token=hf_token)
+    logger.info("Logged in to Hugging Face")
+else:
+    logger.warning("No Hugging Face API key found, running with limited quota")
 
 # Disable SSL warnings
 requests.packages.urllib3.disable_warnings()
@@ -191,36 +206,52 @@ def handle_preflight():
 
 @app.route('/generate_story', methods=['POST', 'OPTIONS'])
 def generate_story():
-    if request.method == "OPTIONS":
-        response = make_response()
-        response.headers.update({
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-            'Access-Control-Max-Age': '3600'
-        })
-        return response
-
     """Generates a story based on image input using Gemini API"""
+    if request.method == "OPTIONS":
+        return handle_preflight()
+
     try:
-        if not check_gemini_rate_limit():
+        # Validate request body
+        if not request.is_json:
+            logger.error("Request body is not JSON")
             return jsonify({
                 'success': False,
-                'error': 'Gemini API rate limit exceeded. Please try again in a minute.'
-            }), 429
+                'error': 'Invalid request format. Expected JSON.'
+            }), 400
 
         data = request.json
+        if not data:
+            logger.error("Empty request body")
+            return jsonify({
+                'success': False,
+                'error': 'Request body is empty'
+            }), 400
+
+        # Extract and validate all required parameters
         image_base64 = data.get('image')
-        genre = data.get('genre', 'fantasy')
-        length = data.get('length', 500)
+        genre = data.get('genre', 'fantasy')  # Add this line
+        length = data.get('length', 500)      # Add this line
 
         if not image_base64:
-            return jsonify({'success': False, 'error': 'No image provided'}), 400
+            logger.error("No image data provided")
+            return jsonify({
+                'success': False,
+                'error': 'No image data provided'
+            }), 400
 
         try:
+            # Validate base64 image
             image_data = base64.b64decode(image_base64)
             image = Image.open(BytesIO(image_data))
             
+            # Validate image format and size
+            if image.format not in ['JPEG', 'PNG', 'WEBP']:
+                logger.error(f"Invalid image format: {image.format}")
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid image format. Please use JPEG, PNG, or WEBP.'
+                }), 400
+
             # Use retry mechanism for vision analysis
             vision_prompt = f"Describe this image in detail for creating a {genre} story."
             response = retry_with_backoff(
@@ -248,26 +279,24 @@ def generate_story():
             })
 
         except Exception as e:
-            error_msg = str(e)
-            if any(code in error_msg for code in ['503', '504', 'overloaded', 'Deadline Exceeded']):
-                return jsonify({
-                    'success': False,
-                    'error': 'The AI service is currently overloaded. Please try again in a few moments.'
-                }), 503
+            logger.exception("Error processing image or generating story")
             return jsonify({
                 'success': False,
-                'error': f'Error processing request: {error_msg}'
-            }), 400
+                'error': f'Error processing request: {str(e)}'
+            }), 500
 
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        logger.exception("Unexpected server error")
         return jsonify({
             'success': False,
-            'error': 'An unexpected error occurred. Please try again later.'
+            'error': 'An unexpected server error occurred. Please try again.'
         }), 500
 
 # Add new configuration for frame generation
-FRAME_IMAGE_SIZE = 320  # Minimum allowed size for Stability API v1.6
+FRAME_IMAGE_SIZE = {
+    'width': 320,  # Reduced width for 4:3 aspect ratio
+    'height': 240  # Reduced height for 4:3 aspect ratio
+}
 MAX_CACHED_FRAMES = 100  # Increased from 50 to 100
 CACHE_CLEANUP_THRESHOLD = 80  # Clean when we reach 80% capacity
 frame_cache = {}
@@ -284,38 +313,104 @@ def clean_old_frames():
 executor = ThreadPoolExecutor(max_workers=4)
 
 # Initialize SDXL-Lightning client
-sdxl_client = Client("ByteDance/SDXL-Lightning")
+sdxl_client = Client(
+    "ByteDance/SDXL-Lightning",
+    hf_token=os.getenv("HUGGINGFACE_API_KEY")  # Changed to match environment variable name
+)
 
-# Modify the generate_frame route
+# Initialize Gradio client
+gradio_client = Client("https://playgroundai-playground-v2-5.hf.space/--replicas/it7wu/")
+
+# Add new constants for frame generation
+FRAME_GENERATION_CONFIG = {
+    'MAX_RETRIES': 3,
+    'RETRY_DELAY': 60,  # 1 minute between retries
+    'QUOTA_WAIT_TIME': 720,  # 12 minutes wait when quota exceeded
+    'MAX_QUEUE_SIZE': 50
+}
+
+# Add queue and tracking for frame generation
+frame_queue = Queue(maxsize=FRAME_GENERATION_CONFIG['MAX_QUEUE_SIZE'])
+last_quota_exceeded = None
+frame_generation_lock = Lock()
+
+# Update the frame generation function
+async def generate_frame_with_retry(prompt):
+    """Generates frame with retry logic for quota limits"""
+    global last_quota_exceeded
+    
+    for attempt in range(FRAME_GENERATION_CONFIG['MAX_RETRIES']):
+        try:
+            # Check if we need to wait due to previous quota exceed
+            if last_quota_exceeded:
+                wait_time = (last_quota_exceeded + 
+                           timedelta(seconds=FRAME_GENERATION_CONFIG['QUOTA_WAIT_TIME']) - 
+                           datetime.now()).total_seconds()
+                if wait_time > 0:
+                    logger.info(f"Waiting {wait_time:.0f}s for quota reset")
+                    await asyncio.sleep(wait_time)
+                last_quota_exceeded = None
+
+            # Update the predict call to match the API's parameters
+            result = gradio_client.predict(
+                prompt,  # str in 'Prompt' Textbox component
+                "",  # str in 'Negative prompt' Textbox component
+                False,  # bool in 'Use negative prompt' Checkbox component
+                0,  # float (numeric value between 0 and 2147483647) in 'Seed' Slider component
+                320,  # float (numeric value between 256 and 1536) in 'Width' Slider component
+                240,  # float (numeric value between 256 and 1536) in 'Height' Slider component
+                0.1,  # float (numeric value between 0.1 and 20) in 'Guidance Scale' Slider component
+                True,  # bool in 'Randomize seed' Checkbox component
+                api_name="/run"
+            )
+            
+            image_data = base64.b64encode(open(result[0][0]['image'], 'rb').read()).decode('utf-8')
+            return {'success': True, 'image': f"data:image/png;base64,{image_data}"}
+
+        except Exception as e:
+            error_msg = str(e)
+            if 'exceeded your GPU quota' in error_msg:
+                last_quota_exceeded = datetime.now()
+                wait_time = FRAME_GENERATION_CONFIG['QUOTA_WAIT_TIME']
+                logger.warning(f"GPU quota exceeded. Waiting {wait_time}s before retry")
+                if attempt < FRAME_GENERATION_CONFIG['MAX_RETRIES'] - 1:
+                    await asyncio.sleep(FRAME_GENERATION_CONFIG['RETRY_DELAY'])
+                    continue
+            raise Exception(f"Frame generation failed after {attempt + 1} attempts: {error_msg}")
+
+    return {'success': False, 'error': 'Max retries exceeded for frame generation'}
+
+# Update the generate_frame route
 @app.route('/generate_frame', methods=['POST'])
-def generate_frame():
-    """Generates image frames using SDXL-Lightning"""
+async def generate_frame():
+    """Handles frame generation requests with quota management"""
     try:
+        if not request.is_json:
+            return jsonify({'success': False, 'error': 'Invalid request format'}), 400
+
         data = request.json
         if not data or 'prompt' not in data:
             return jsonify({'success': False, 'error': 'No prompt provided'}), 400
 
         prompt = data['prompt']
         
-        # Generate image using SDXL-Lightning
         try:
-            result = sdxl_client.predict(
-                prompt=prompt,
-                ckpt="4-Step",  # You can adjust steps based on speed/quality needs
-                api_name="/generate_image"
-            )
-            
-            # Convert the local file path to base64
-            with open(result, 'rb') as image_file:
-                image_data = base64.b64encode(image_file.read()).decode('utf-8')
-            
-            return jsonify({
-                'success': True,
-                'image': f"data:image/png;base64,{image_data}"
-            })
+            result = await generate_frame_with_retry(prompt)
+            if result['success']:
+                return jsonify(result)
+            else:
+                return jsonify(result), 500
             
         except Exception as e:
-            raise Exception(f"SDXL-Lightning generation failed: {str(e)}")
+            error_msg = str(e)
+            if 'GPU quota' in error_msg:
+                wait_time = FRAME_GENERATION_CONFIG['QUOTA_WAIT_TIME']
+                return jsonify({
+                    'success': False,
+                    'error': f'GPU quota exceeded. Please try again in {wait_time//60} minutes.',
+                    'retry_after': wait_time
+                }), 429
+            return jsonify({'success': False, 'error': error_msg}), 500
 
     except Exception as e:
         logger.error(f"Frame generation error: {str(e)}")
@@ -332,9 +427,21 @@ def health_check():
     })
 
 if __name__ == '__main__':
+    import socket
+
+    def find_free_port():
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('', 0))
+            return s.getsockname()[1]
+
     try:
         port = int(os.environ.get('PORT', 5000))
         app.run(host='0.0.0.0', port=port)
-    except Exception as e:
-        print(f"Error starting server: {str(e)}")
-        raise
+    except OSError as e:
+        if e.errno == 98:  # Address already in use
+            port = find_free_port()
+            print(f"Port 5000 is in use, switching to port {port}")
+            app.run(host='0.0.0.0', port=port)
+        else:
+            print(f"Error starting server: {str(e)}")
+            raise

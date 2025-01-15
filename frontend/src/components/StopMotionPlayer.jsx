@@ -3,8 +3,9 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 const RETRY_DELAY = 2000; // 2 seconds between retries
 const MAX_RETRIES = 3;
 
-const BACKEND_URL =
-  process.env.REACT_APP_BACKEND_URL || "http://localhost:5000";
+const BACKEND_URL = process.env.NODE_ENV === 'development' 
+  ? 'http://localhost:5000'
+  : process.env.REACT_APP_API_URL;
 // Update constants for better performance
 const FPS = 12;
 const FRAME_TIME = 1000 / FPS;
@@ -15,6 +16,12 @@ const REQUEST_TIMEOUT = 15000; // 15 second timeout for requests
 
 // Add request caching
 const frameCache = new Map();
+
+// Add image dimension constants
+const IMAGE_DIMENSIONS = {
+    width: 512,
+    height: 512
+};
 
 export const StopMotionPlayer = ({
   story,
@@ -45,22 +52,30 @@ export const StopMotionPlayer = ({
         })
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
       const data = await response.json();
       
+      if (response.status === 429) {
+        // Handle rate limit/quota exceeded
+        const retryAfter = data.retry_after || 720; // Default to 12 minutes
+        setError(`${data.error} Retrying automatically.`);
+        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+        return generateFrames(); // Retry after waiting
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate image');
+      }
+
       if (data.success) {
         setFrames(prev => [...prev, data.image]);
         frameQueue.current.shift();
         if (frameQueue.current.length > 0) {
-          setTimeout(() => generateFrames(), BATCH_INTERVAL);
+          // Add random delay between 5-10 seconds to avoid overwhelming the API
+          const delay = Math.random() * 5000 + 5000;
+          setTimeout(() => generateFrames(), delay);
         } else {
           setLoading(false);
         }
-      } else {
-        throw new Error(data.error || 'Failed to generate image');
       }
     } catch (error) {
       setError(`Failed to generate frame: ${error.message}`);
@@ -143,8 +158,11 @@ export const StopMotionPlayer = ({
         <img
           src={frames[currentFrame]}
           alt={`Story frame ${currentFrame + 1}`}
-          className="w-full h-auto rounded-lg shadow-neon transition-opacity duration-100"
-          style={{ opacity: loading ? 0.7 : 1 }}
+          className="w-full max-w-[512px] h-auto mx-auto rounded-lg shadow-neon transition-opacity duration-100"
+          style={{ 
+            opacity: loading ? 0.7 : 1,
+            aspectRatio: `${IMAGE_DIMENSIONS.width}/${IMAGE_DIMENSIONS.height}`
+          }}
         />
       )}
       <div className="text-center mt-2 text-neon-blue">

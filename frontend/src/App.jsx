@@ -18,8 +18,10 @@ const VOICE_TYPES = [
   { label: "Australian English", value: "com.au" }
 ];
 
-// Update BACKEND_URL to use environment variable
-const BACKEND_URL = process.env.REACT_APP_API_URL || 'https://story-generator-api.onrender.com';
+// Update the BACKEND_URL constant
+const BACKEND_URL = process.env.NODE_ENV === 'development' 
+  ? 'http://localhost:5000'
+  : process.env.REACT_APP_API_URL;
 
 const FRAME_INTERVAL = 2; // seconds between frames
 
@@ -60,6 +62,9 @@ const App = () => {
     setLoading(true);
     setError('');
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
     try {
       const base64Image = imagePreview.split(',')[1];
 
@@ -72,23 +77,40 @@ const App = () => {
           image: base64Image,
           genre: genre,
           length: length
-        })
+        }),
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.error || 
+          `Server error (${response.status}). Please try again.`
+        );
+      }
 
       const data = await response.json();
       if (data.success) {
         setStory(data.story);
-        // Calculate approximate duration based on word count
         const wordCount = data.story.split(' ').length;
-        const averageWordsPerMinute = 150; // adjust based on your narration speed
+        const averageWordsPerMinute = 150;
         setStoryDuration((wordCount / averageWordsPerMinute) * 60);
       } else {
-        setError(data.error || 'Failed to generate story');
+        throw new Error(data.error || 'Failed to generate story');
       }
     } catch (err) {
-      setError('Error connecting to server: ' + err.message);
+      if (err.name === 'AbortError') {
+        setError('Request timed out. Please try again.');
+      } else if (!navigator.onLine) {
+        setError('No internet connection. Please check your network.');
+      } else {
+        setError(err.message || 'Error connecting to server');
+      }
     } finally {
       setLoading(false);
+      clearTimeout(timeoutId);
     }
   };
 
