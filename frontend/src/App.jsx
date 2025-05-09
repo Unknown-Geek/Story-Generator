@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { StopMotionPlayer } from './components/StopMotionPlayer';
 import CollapsibleStory from './components/CollapsibleStory';
-import AudioPlayer from './components/AudioPlayer'; // Add this import
+import AudioPlayer from './components/AudioPlayer';
+import ServerConnection from './components/ServerConnection';
 import { Analytics } from "@vercel/analytics/react";
 
 const GENRES = ["Fantasy", "Adventure", "Romance", "Horror", "Mystery", "Moral Story"];
@@ -18,8 +19,8 @@ const VOICE_TYPES = [
   { label: "Australian English", value: "com.au" }
 ];
 
-// Update the BACKEND_URL constant
-const BACKEND_URL = process.env.NODE_ENV === 'development' 
+// Default backend URL if not using a custom Colab server
+const DEFAULT_BACKEND_URL = process.env.NODE_ENV === 'development' 
   ? 'http://localhost:5000'
   : process.env.REACT_APP_API_URL;
 
@@ -40,6 +41,40 @@ const App = () => {
   const [useStopMotion, setUseStopMotion] = useState(false);
   const [currentNarrationTime, setCurrentNarrationTime] = useState(0);
   const [storyDuration, setStoryDuration] = useState(0);
+  
+  // Server connection state
+  const [backendUrl, setBackendUrl] = useState(() => {
+    return localStorage.getItem('colabServerUrl') || DEFAULT_BACKEND_URL;
+  });
+  const [isServerConnected, setIsServerConnected] = useState(false);
+
+  // Check server connection on mount and when backendUrl changes
+  useEffect(() => {
+    const checkServerConnection = async () => {
+      try {
+        const response = await fetch(`${backendUrl}/health`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        setIsServerConnected(response.ok);
+      } catch (error) {
+        setIsServerConnected(false);
+      }
+    };
+    
+    checkServerConnection();
+    
+    // Set up periodic health check (every 30 seconds)
+    const intervalId = setInterval(checkServerConnection, 30000);
+    
+    return () => clearInterval(intervalId);
+  }, [backendUrl]);
+
+  const handleServerUrlChange = (newUrl) => {
+    setBackendUrl(newUrl);
+    // Reset any errors
+    setError('');
+  };
 
   const handleImageUpload = (event) => {
     const file = event.target.files[0];
@@ -59,6 +94,11 @@ const App = () => {
       return;
     }
 
+    if (!isServerConnected) {
+      setError('Server is not connected. Please check your connection.');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
@@ -68,7 +108,7 @@ const App = () => {
     try {
       const base64Image = imagePreview.split(',')[1];
 
-      const response = await fetch(`${BACKEND_URL}/generate_story`, {
+      const response = await fetch(`${backendUrl}/generate_story`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -114,18 +154,7 @@ const App = () => {
     }
   };
 
-  // Update handleSdxlUrlChange to use debouncing
-  const connectionCheckRef = useRef(null);
-
   // Add cleanup effect
-  useEffect(() => {
-    return () => {
-      if (connectionCheckRef.current) {
-        clearTimeout(connectionCheckRef.current);
-      }
-    };
-  }, []);
-
   useEffect(() => {
     return () => {
       if (window.speechSynthesis.speaking) {
@@ -137,9 +166,24 @@ const App = () => {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_50%_50%,var(--tw-gradient-stops))] from-dark-bg via-[#000510] to-[#000510] py-8 px-4 relative">
       <div className="max-w-4xl mx-auto relative z-10">
-        <h1 className="text-5xl font-bold text-center text-white mb-12 text-shadow-neon" style={{ fontFamily: "'Base Neue', 'Eurostile', 'Bank Gothic', sans-serif" }}>
-          Story Generator
-        </h1>
+        <div className="flex justify-between items-center mb-12">
+          <h1 className="text-5xl font-bold text-center text-white text-shadow-neon" style={{ fontFamily: "'Base Neue', 'Eurostile', 'Bank Gothic', sans-serif" }}>
+            Story Generator
+          </h1>
+          <div className="flex items-center">
+            <div className={`h-3 w-3 rounded-full mr-2 ${isServerConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            <span className="text-sm text-gray-300">{isServerConnected ? 'Server Online' : 'Server Offline'}</span>
+          </div>
+        </div>
+
+        {/* Server Connection Panel */}
+        <div className="bg-[rgba(10,10,31,0.8)] border border-neon-blue/10 rounded-lg p-6 mb-8 backdrop-blur-md shadow-neon">
+          <ServerConnection 
+            onServerUrlChange={handleServerUrlChange}
+            serverUrl={backendUrl}
+            isConnected={isServerConnected}
+          />
+        </div>
 
         {/* Settings Panel */}
         <div className="bg-[rgba(10,10,31,0.8)] border border-neon-blue/10 rounded-lg p-6 mb-8 backdrop-blur-md shadow-neon">
@@ -231,7 +275,7 @@ const App = () => {
         {/* Generate Button */}
         <button
           onClick={generateStory}
-          disabled={loading}
+          disabled={loading || !isServerConnected}
           className="glass-button w-full flex items-center justify-center gap-2"
         >
           {loading ? (
@@ -239,6 +283,8 @@ const App = () => {
               <div className="loading-spinner" />
               <span>Generating...</span>
             </>
+          ) : !isServerConnected ? (
+            "Server Not Connected"
           ) : (
             "Generate Story"
           )}
