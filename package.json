@@ -9,7 +9,7 @@
     "install-deps": "cd frontend && npm install --legacy-peer-deps",
     "start": "cd frontend && npm start",
     "build": "cd frontend && npm run build",
-    "vercel-build": "cd frontend && npm install --legacy-peer-deps && npm run vercel-build"
+    "vercel-build": "cd frontend && npm install --legacy-peer-deps --include=dev && npm run vercel-build"
   },
   "dependencies": {},
   "engines": {

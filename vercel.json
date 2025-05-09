@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd frontend && npm install --legacy-peer-deps && npm run vercel-build",
+  "buildCommand": "cd frontend && npm install --legacy-peer-deps --include=dev && npm run vercel-build",
   "installCommand": "npm install",
   "framework": "create-react-app",
   "outputDirectory": "frontend/build",
