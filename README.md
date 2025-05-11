@@ -25,7 +25,7 @@ An AI-powered web application that generates unique stories from your images. Up
 
 - Python
 - Flask
-- OpenAI APIs for image understanding and story generation
+- Gemini API for image understanding and story generation
 - Text-to-speech services
 
 ## Installation and Setup
@@ -34,7 +34,7 @@ An AI-powered web application that generates unique stories from your images. Up
 
 - Node.js (v14 or later)
 - Python (v3.8 or later)
-- OpenAI API key
+- Gemini API key
 
 ### Backend Setup
 
