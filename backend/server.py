@@ -98,13 +98,13 @@ GEMINI_TIMEOUT = 30  # seconds
 
 # Update model configuration without timeouts
 vision_model = genai.GenerativeModel(
-    'gemini-1.5-pro',
+    'gemini-2.0-flash',
     generation_config=generation_config,
     safety_settings=SAFETY_SETTINGS
 )
 
 story_model = genai.GenerativeModel(
-    'gemini-pro',
+    'gemini-2.0-flash',
     generation_config=generation_config,
     safety_settings=SAFETY_SETTINGS
 )
