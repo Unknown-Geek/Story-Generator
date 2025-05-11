@@ -1,131 +1,140 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { StopMotionPlayer } from './components/StopMotionPlayer';
-import CollapsibleStory from './components/CollapsibleStory';
-import AudioPlayer from './components/AudioPlayer'; // Add this import
+/**
+ * Main App Component for Story Generator
+ * This component handles image uploads, story generation, and displaying
+ * the generated stories with audio narration.
+ */
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import CollapsibleStory from "./components/CollapsibleStory";
+import AudioPlayer from "./components/AudioPlayer";
 import { Analytics } from "@vercel/analytics/react";
+import { X } from "lucide-react";
+import api from "./services/api";
 
-const GENRES = ["Fantasy", "Adventure", "Romance", "Horror", "Mystery", "Moral Story"];
+const GENRES = [
+  "Fantasy",
+  "Adventure",
+  "Romance",
+  "Horror",
+  "Mystery",
+  "Moral Story",
+];
 const STORY_LENGTHS = [
   { label: "Short (200 words)", value: 200 },
   { label: "Medium (500 words)", value: 500 },
-  { label: "Long (1000 words)", value: 1000 }
+  { label: "Long (1000 words)", value: 1000 },
 ];
 
 const VOICE_TYPES = [
   { label: "US English", value: "com" },
   { label: "UK English", value: "co.uk" },
   { label: "Indian English", value: "co.in" },
-  { label: "Australian English", value: "com.au" }
+  { label: "Australian English", value: "com.au" },
 ];
 
 // Update the BACKEND_URL constant
-const BACKEND_URL = process.env.NODE_ENV === 'development' 
-  ? 'http://localhost:5000'
-  : process.env.REACT_APP_API_URL;
-
-const FRAME_INTERVAL = 2; // seconds between frames
+// const BACKEND_URL =
+//   process.env.NODE_ENV === "development"
+//     ? "http://localhost:5000"
+//     : process.env.REACT_APP_API_URL;
 
 const App = () => {
-  const [image, setImage] = useState(null);
-  const [imagePreview, setImagePreview] = useState('');
+  const [images, setImages] = useState([]);
+  const [imagePreview, setImagePreview] = useState("");
+  const [imagePreviews, setImagePreviews] = useState([]);
   const [genre, setGenre] = useState(GENRES[0]);
   const [length, setLength] = useState(STORY_LENGTHS[0].value);
-  const [story, setStory] = useState('');
+  const [story, setStory] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [voiceSettings, setVoiceSettings] = useState({
     accent: VOICE_TYPES[0].value,
-    speed: 'normal'
+    speed: "normal",
   });
-  const [useStopMotion, setUseStopMotion] = useState(false);
-  const [currentNarrationTime, setCurrentNarrationTime] = useState(0);
   const [storyDuration, setStoryDuration] = useState(0);
+  const [currentNarrationTime, setCurrentNarrationTime] = useState(0);
+  const [generationCompleted, setGenerationCompleted] = useState(false);
+  const [audioSrc, setAudioSrc] = useState(null);
 
   const handleImageUpload = (event) => {
-    const file = event.target.files[0];
-    if (file) {
+    const files = Array.from(event.target.files);
+    if (files.length === 0) return;
+
+    // Display previews of all selected images
+    setImages((prevImages) => [...prevImages, ...files]);
+
+    // Create previews for all images
+    files.forEach((file) => {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setImage(file);
-        setImagePreview(reader.result);
+        setImagePreviews((prev) => [...prev, reader.result]);
+
+        // Also set the first image as the main preview for the StopMotion component
+        if (imagePreviews.length === 0) {
+          setImagePreview(reader.result);
+        }
       };
       reader.readAsDataURL(file);
-    }
+    });
   };
 
+  const removeImage = (index) => {
+    setImages((prevImages) => prevImages.filter((_, i) => i !== index));
+    setImagePreviews((prevPreviews) =>
+      prevPreviews.filter((_, i) => i !== index)
+    );
+
+    // Update the main preview if needed
+    if (index === 0 && imagePreviews.length > 1) {
+      setImagePreview(imagePreviews[1]);
+    } else if (imagePreviews.length === 1) {
+      setImagePreview("");
+    }
+  };
   const generateStory = async () => {
-    if (!imagePreview) {
-      setError('Please upload an image');
+    if (imagePreviews.length === 0) {
+      setError("Please upload at least one image");
       return;
     }
 
     setLoading(true);
-    setError('');
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    setError("");
+    setGenerationCompleted(false);
+    setStory(null);
+    setAudioSrc(null);
 
     try {
-      const base64Image = imagePreview.split(',')[1];
+      // Convert all images to base64
+      const base64Images = imagePreviews.map(
+        (preview) => preview.split(",")[1]
+      );
 
-      const response = await fetch(`${BACKEND_URL}/generate_story`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          image: base64Image,
-          genre: genre,
-          length: length
-        }),
-        signal: controller.signal
-      });
+      const storyResponse = await api.generateStory(
+        base64Images,
+        genre,
+        length
+      );
 
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          errorData.error || 
-          `Server error (${response.status}). Please try again.`
-        );
-      }
-
-      const data = await response.json();
-      if (data.success) {
-        setStory(data.story);
-        const wordCount = data.story.split(' ').length;
-        const averageWordsPerMinute = 150;
-        setStoryDuration((wordCount / averageWordsPerMinute) * 60);
-      } else {
-        throw new Error(data.error || 'Failed to generate story');
-      }
+      setStory(storyResponse.story);
+      setAudioSrc(storyResponse.audioUrl);
+      setGenerationCompleted(true);
     } catch (err) {
-      if (err.name === 'AbortError') {
-        setError('Request timed out. Please try again.');
+      console.error("Error generating story:", err);
+      if (err.name === "AbortError") {
+        setError("Request timed out. Please try again.");
       } else if (!navigator.onLine) {
-        setError('No internet connection. Please check your network.');
+        setError("No internet connection. Please check your network.");
       } else {
-        setError(err.message || 'Error connecting to server');
+        setError(
+          err.response?.data?.error ||
+            "Failed to generate story. Please try again."
+        );
       }
     } finally {
       setLoading(false);
-      clearTimeout(timeoutId);
     }
   };
 
-  // Update handleSdxlUrlChange to use debouncing
-  const connectionCheckRef = useRef(null);
-
-  // Add cleanup effect
-  useEffect(() => {
-    return () => {
-      if (connectionCheckRef.current) {
-        clearTimeout(connectionCheckRef.current);
-      }
-    };
-  }, []);
-
+  // Cleanup effects
   useEffect(() => {
     return () => {
       if (window.speechSynthesis.speaking) {
@@ -137,10 +146,14 @@ const App = () => {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_50%_50%,var(--tw-gradient-stops))] from-dark-bg via-[#000510] to-[#000510] py-8 px-4 relative">
       <div className="max-w-4xl mx-auto relative z-10">
-        <h1 className="text-5xl font-bold text-center text-white mb-12 text-shadow-neon" style={{ fontFamily: "'Base Neue', 'Eurostile', 'Bank Gothic', sans-serif" }}>
+        <h1
+          className="text-5xl font-bold text-center text-white mb-12 text-shadow-neon"
+          style={{
+            fontFamily: "'Base Neue', 'Eurostile', 'Bank Gothic', sans-serif",
+          }}
+        >
           Story Generator
         </h1>
-
         {/* Settings Panel */}
         <div className="bg-[rgba(10,10,31,0.8)] border border-neon-blue/10 rounded-lg p-6 mb-8 backdrop-blur-md shadow-neon">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -149,8 +162,10 @@ const App = () => {
               onChange={(e) => setGenre(e.target.value)}
               className="w-full p-2 rounded bg-dark-bg/50 border border-neon-blue/20 text-white focus:border-neon-blue/50 focus:ring-1 focus:ring-neon-blue/50 transition-all"
             >
-              {GENRES.map(g => (
-                <option key={g} value={g}>{g}</option>
+              {GENRES.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
               ))}
             </select>
 
@@ -159,26 +174,36 @@ const App = () => {
               onChange={(e) => setLength(Number(e.target.value))}
               className="w-full p-2 rounded bg-dark-bg/50 border border-neon-blue/20 text-white focus:border-neon-blue/50 focus:ring-1 focus:ring-neon-blue/50 transition-all"
             >
-              {STORY_LENGTHS.map(l => (
-                <option key={l.value} value={l.value}>{l.label}</option>
+              {STORY_LENGTHS.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
               ))}
             </select>
-          </div>
-
+          </div>{" "}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <select
               value={voiceSettings.accent}
-              onChange={(e) => setVoiceSettings(prev => ({ ...prev, accent: e.target.value }))}
+              onChange={(e) =>
+                setVoiceSettings((prev) => ({
+                  ...prev,
+                  accent: e.target.value,
+                }))
+              }
               className="w-full p-2 rounded bg-dark-bg/50 border border-neon-blue/20 text-white focus:border-neon-blue/50 focus:ring-1 focus:ring-neon-blue/50 transition-all"
             >
-              {VOICE_TYPES.map(v => (
-                <option key={v.value} value={v.value}>{v.label}</option>
+              {VOICE_TYPES.map((v) => (
+                <option key={v.value} value={v.value}>
+                  {v.label}
+                </option>
               ))}
             </select>
 
             <select
               value={voiceSettings.speed}
-              onChange={(e) => setVoiceSettings(prev => ({ ...prev, speed: e.target.value }))}
+              onChange={(e) =>
+                setVoiceSettings((prev) => ({ ...prev, speed: e.target.value }))
+              }
               className="w-full p-2 rounded bg-dark-bg/50 border border-neon-blue/20 text-white focus:border-neon-blue/50 focus:ring-1 focus:ring-neon-blue/50 transition-all"
             >
               <option value="slow">Slow</option>
@@ -186,20 +211,7 @@ const App = () => {
               <option value="fast">Fast</option>
             </select>
           </div>
-          <div className="mt-4 flex items-center">
-            <label className="flex items-center space-x-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={useStopMotion}
-                onChange={(e) => setUseStopMotion(e.target.checked)}
-                className="form-checkbox h-5 w-5 text-neon-blue rounded border-neon-blue/20 
-                          focus:ring-neon-blue/50 focus:ring-2 bg-dark-bg/50"
-              />
-              <span className="text-white">Enable Image Frames</span>
-            </label>
-          </div>
         </div>
-
         {/* Image Upload */}
         <div className="mb-8">
           <input
@@ -208,26 +220,63 @@ const App = () => {
             onChange={handleImageUpload}
             className="hidden"
             id="image-upload"
+            multiple
           />
           <label
             htmlFor="image-upload"
             className="block w-full p-6 border-2 border-dashed border-neon-blue/30 rounded-lg text-center text-white cursor-pointer hover:border-neon-blue/50 transition-all bg-dark-bg/30 backdrop-blur-sm"
           >
-            {imagePreview ? (
-              <img src={imagePreview} alt="Preview" className="max-h-64 mx-auto rounded shadow-neon" />
+            {" "}
+            {imagePreviews.length > 0 ? (
+              <div className="space-y-4">
+                <div className="relative">
+                  <div
+                    className="flex overflow-x-auto pb-2 gap-3 hide-scrollbar px-1 py-1 scroll-smooth"
+                    style={{ maxWidth: "100%" }}
+                  >
+                    {imagePreviews.map((preview, index) => (
+                      <div key={index} className="relative group flex-shrink-0">
+                        <img
+                          src={preview}
+                          alt={`Preview ${index + 1}`}
+                          className="h-16 w-24 object-cover rounded-md shadow-neon border border-neon-blue/20"
+                        />
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            removeImage(index);
+                          }}
+                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5 opacity-70 hover:opacity-100 transition-opacity"
+                        >
+                          <X size={8} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {imagePreviews.length > 3 && (
+                    <div className="absolute right-0 top-0 bottom-0 w-10 bg-gradient-to-l from-dark-bg/80 to-transparent pointer-events-none flex items-center justify-end" />
+                  )}
+                </div>
+                <p className="text-neon-blue/70 text-sm">
+                  Click to add more images
+                </p>
+              </div>
             ) : (
-              "Click to upload image"
+              <div className="py-8">
+                <p className="text-lg mb-2">Click to upload images</p>
+                <p className="text-sm text-neon-blue/70">
+                  You can select multiple images
+                </p>
+              </div>
             )}
           </label>
         </div>
-
         {/* Error Message */}
         {error && (
           <div className="text-red-400 text-center mb-4 bg-red-900/20 border border-red-500/20 rounded-lg p-3">
             {error}
           </div>
         )}
-
         {/* Generate Button */}
         <button
           onClick={generateStory}
@@ -242,22 +291,14 @@ const App = () => {
           ) : (
             "Generate Story"
           )}
-        </button>
-
+        </button>{" "}
         {/* Story Display */}
         {story && (
           <div className="story-container mt-8 animate-fadeIn">
-            {useStopMotion && (
-              <StopMotionPlayer
-                story={story}
-                currentNarrationTime={currentNarrationTime}
-                totalDuration={storyDuration}
-              />
-            )}
-            <AudioPlayer 
-              story={story} 
+            <AudioPlayer
+              story={story}
               voiceSettings={voiceSettings}
-              onTimeUpdate={useStopMotion ? setCurrentNarrationTime : undefined}
+              onTimeUpdate={setCurrentNarrationTime}
               initialTime={currentNarrationTime}
             />
             <CollapsibleStory story={story} />
@@ -268,13 +309,13 @@ const App = () => {
       <div className="fixed bottom-0 left-0 w-full pointer-events-none">
         {/* Subtle white core glow */}
         <div className="absolute bottom-0 w-full h-[10px] bg-gradient-to-t from-white to-transparent blur-[6px]" />
-        
+
         {/* Layered soft blue glows */}
         <div className="absolute bottom-0 w-full h-[30px] bg-gradient-to-t from-neon-blue/25 via-neon-blue/10 to-transparent blur-[10px]" />
         <div className="absolute bottom-0 w-full h-[60px] bg-gradient-to-t from-neon-blue/20 via-neon-blue/8 to-transparent blur-[20px]" />
         <div className="absolute bottom-0 w-full h-[100px] bg-gradient-to-t from-neon-blue/15 via-neon-blue/5 to-transparent blur-[30px]" />
         <div className="absolute bottom-0 w-full h-[200px] bg-gradient-to-t from-neon-blue/10 via-neon-blue/3 to-transparent blur-[50px]" />
-        
+
         {/* Ultra-soft ambient glow */}
         <div className="absolute bottom-0 w-full h-[250px] bg-gradient-to-t from-neon-blue/5 via-neon-blue/2 to-transparent blur-[80px]" />
       </div>

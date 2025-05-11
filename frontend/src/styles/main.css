@@ -43,11 +43,30 @@
   .glow-effect {
     @apply relative z-10 transition-all duration-300 hover:brightness-110;
   }
-
   .current-line {
     @apply relative my-5 p-6 bg-[rgba(10,10,31,0.4)] border border-neon-blue/20 
            rounded-xl backdrop-blur-md shadow-neon transition-all duration-500
            text-lg leading-relaxed text-center animate-pulse;
+  }
+
+  /* Custom scrollbar hiding */
+  .hide-scrollbar {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none; /* Chrome, Safari and Opera */
+  }
+
+  /* Custom scrollbar hiding */
+  .hide-scrollbar {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none; /* Chrome, Safari and Opera */
   }
 
   .glass-button {
@@ -102,7 +121,8 @@
   }
 
   .bottom-glow {
-    background: linear-gradient(to top, 
+    background: linear-gradient(
+      to top,
       rgba(0, 243, 255, 0.1) 0%,
       rgba(0, 243, 255, 0.05) 30%,
       transparent 100%
@@ -112,18 +132,34 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.8; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
 }
 
 @keyframes textGlow {
-  0%, 100% { text-shadow: 0 0 10px rgba(0, 243, 255, 0.3); }
-  50% { text-shadow: 0 0 20px rgba(0, 243, 255, 0.5); }
+  0%,
+  100% {
+    text-shadow: 0 0 10px rgba(0, 243, 255, 0.3);
+  }
+  50% {
+    text-shadow: 0 0 20px rgba(0, 243, 255, 0.5);
+  }
 }
 
 .animate-fadeIn {

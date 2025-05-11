@@ -3,21 +3,23 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
+    "@babel/runtime": "^7.27.1",
     "@headlessui/react": "^1.7.17",
     "@tailwindcss/forms": "^0.5.7",
     "@testing-library/react": "^13.4.0",
+    "@vercel/analytics": "^1.5.0",
     "autoprefixer": "^10.4.16",
-    "framer-motion": "^11.11.17",
+    "axios": "^1.9.0",
+    "framer-motion": "^11.18.2",
+    "gh-pages": "^6.1.1",
     "lucide-react": "^0.321.0",
     "postcss": "^8.4.31",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "react-scripts": "^5.0.1",
     "tailwindcss": "^3.3.0",
-    "gh-pages": "^6.1.1",
-    "@vercel/analytics": "^1.1.1",
-    "typescript": "4.9.5",
-    "@babel/plugin-proposal-private-property-in-object": "^7.21.11"
+    "typescript": "4.9.5"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -50,5 +52,18 @@
   "overrides": {
     "typescript": "4.9.5",
     "@vercel/analytics": "^1.1.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.27.1",
+    "@babel/plugin-transform-runtime": "^7.27.1",
+    "@babel/preset-env": "^7.27.2",
+    "@babel/preset-react": "^7.27.1",
+    "@pmmmwh/react-refresh-webpack-plugin": "^0.6.0",
+    "babel-loader": "^10.0.0",
+    "html-webpack-plugin": "^5.6.3",
+    "source-map-loader": "^5.0.0",
+    "webpack": "^5.99.8",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.1"
   }
 }

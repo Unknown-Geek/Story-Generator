@@ -1,11 +1,42 @@
+# Python environments
 venv/
 backend/venv/
-backend/.env
 __pycache__/
 *.pyc
-
-frontend/node_modules
-/node_modules
-
+*.pyo
+*.pyd
+.Python
+env/
 .env
+
+# Node.js dependencies
+frontend/node_modules/
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# Build files
+frontend/build/
+frontend/dist/
+dist/
+build/
+
+# Environment variables and deployment config
+.env
+backend/.env
+**/*.env
 .vercel
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log

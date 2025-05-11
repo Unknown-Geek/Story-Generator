@@ -1,34 +1,40 @@
+/**
+ * API Service for Story Generator
+ * Handles communication with the backend server for story generation
+ * and related services.
+ */
+import axios from "axios";
 
-import axios from 'axios';
+const BACKEND_URL =
+  process.env.REACT_APP_BACKEND_URL || "http://localhost:5000";
 
 const api = {
-  generateStory: async (serverUrl, imageData, genre, length) => {
+  generateStory: async (images, genre, length) => {
     try {
+      // Check if images is an array or single image
+      const imageData = Array.isArray(images) ? images : [images];
+
       const response = await axios.post(
-        `${serverUrl}/generate_story`,
+        `${BACKEND_URL}/generate_story`,
         {
-          image: imageData,
+          images: imageData,
           genre,
-          length
+          length,
         },
         {
-          timeout: 300000,
+          timeout: 300000, // 5 minutes for processing multiple images
           headers: {
-            'Content-Type': 'application/json'
-          }
+            "Content-Type": "application/json",
+          },
         }
       );
       return response.data;
     } catch (error) {
-      throw new Error(error.response?.data?.error || 'Failed to generate story');
+      throw new Error(
+        error.response?.data?.error || "Failed to generate story"
+      );
     }
   },
-
-  textToSpeech: async (text, voiceSettings) => {
-    // Implementation will depend on your TTS service
-    // This is a placeholder for the gTTS functionality
-    throw new Error('TTS not implemented in frontend');
-  }
 };
 
 export default api;
