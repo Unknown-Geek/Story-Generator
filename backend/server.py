@@ -297,8 +297,8 @@ def generate_story():
 
 # Add new configuration for frame generation
 FRAME_IMAGE_SIZE = {
-    'width': 512,  # Updated to match FLUX Pro default
-    'height': 512  # Updated to match FLUX Pro default
+    'width': 256,  # Updated to match FLUX Pro default
+    'height': 256  # Updated to match FLUX Pro default
 }
 MAX_CACHED_FRAMES = 100
 CACHE_CLEANUP_THRESHOLD = 80
