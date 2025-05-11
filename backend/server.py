@@ -1,6 +1,6 @@
 """
 AI-powered Story Generator Server
-Handles story generation using Gemini API and image generation using FLUX Pro API
+Handles story generation using Gemini API and image generation using SDXL Turbo
 """
 
 from flask import Flask, request, jsonify, make_response
@@ -21,6 +21,7 @@ from gradio_client import Client
 import base64
 from queue import Queue
 from huggingface_hub import login
+import json
 
 # Move logger configuration before any logger usage
 logging.basicConfig(
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 load_dotenv(dotenv_path='../.env')
 
 # Initialize Hugging Face authentication
-hf_token = os.getenv("HUGGINGFACE_API_KEY")  # Changed from HUGGING_FACE_TOKEN
+hf_token = os.getenv("HUGGINGFACE_API_KEY")
 if hf_token:
     login(token=hf_token)
     logger.info("Logged in to Hugging Face")
@@ -295,8 +296,8 @@ def generate_story():
 
 # Add new configuration for frame generation
 FRAME_IMAGE_SIZE = {
-    'width': 256,  # Updated to match FLUX Pro default
-    'height': 256  # Updated to match FLUX Pro default
+    'width': 512,  # Standard size for SDXL Turbo
+    'height': 512  # Standard size for SDXL Turbo
 }
 MAX_CACHED_FRAMES = 100
 CACHE_CLEANUP_THRESHOLD = 80
@@ -313,14 +314,16 @@ def clean_old_frames():
 # Add parallel processing for frame generation
 executor = ThreadPoolExecutor(max_workers=4)
 
-# Initialize FLUX Pro API client
-flux_pro_client = Client("NihalGazi/FLUX-Pro-Unlimited")
+# Define the URL for your SDXL Turbo HF Space API
+# Replace with your actual HF Space URL when deployed
+SDXL_TURBO_API_URL = os.getenv("SDXL_TURBO_API_URL", "https://your-sdxl-turbo-space.hf.space")
 
 # Add new constants for frame generation
 FRAME_GENERATION_CONFIG = {
     'MAX_RETRIES': 3,
     'RETRY_DELAY': 60,  # 1 minute between retries
-    'QUOTA_WAIT_TIME': 720,  # 12 minutes wait when quota exceeded
+    'TIMEOUT': 90,      # 90 seconds timeout for API calls
+    'QUOTA_WAIT_TIME': 300,  # 5 minutes wait when quota exceeded
     'MAX_QUEUE_SIZE': 50
 }
 
@@ -329,7 +332,61 @@ frame_queue = Queue(maxsize=FRAME_GENERATION_CONFIG['MAX_QUEUE_SIZE'])
 last_quota_exceeded = None
 frame_generation_lock = Lock()
 
-# Update the frame generation function to use FLUX Pro API - making it synchronous
+# Function to generate image using SDXL Turbo API
+def generate_image_with_sdxl_turbo(prompt):
+    """Generates an image using SDXL Turbo API hosted on HF Spaces"""
+    headers = {
+        "Authorization": f"Bearer {hf_token}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "prompt": prompt,
+        "width": FRAME_IMAGE_SIZE['width'],
+        "height": FRAME_IMAGE_SIZE['height'],
+        "num_inference_steps": 1,  # SDXL Turbo can work with just 1-4 steps
+        "guidance_scale": 0.0,     # Can use 0 for SDXL Turbo
+        "seed": -1                 # Random seed
+    }
+    
+    try:
+        response = requests.post(
+            f"{SDXL_TURBO_API_URL}/api/predict",
+            headers=headers,
+            json=payload,
+            timeout=FRAME_GENERATION_CONFIG['TIMEOUT']
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            
+            # The response structure will depend on your HF Space API implementation
+            # This is a common structure for image generation Spaces
+            if 'data' in result and isinstance(result['data'], list) and len(result['data']) > 0:
+                # Assuming the first item contains a base64 image
+                image_data = result['data'][0].get('image')
+                if image_data:
+                    # If the image is already base64 encoded
+                    if image_data.startswith('data:image'):
+                        return {'success': True, 'image': image_data}
+                    # Otherwise, assume it's a base64 string without the prefix
+                    else:
+                        return {'success': True, 'image': f"data:image/png;base64,{image_data}"}
+                        
+            return {'success': False, 'error': f'Unexpected response structure: {result}'}
+        
+        error_message = f"API request failed with status {response.status_code}: {response.text}"
+        logger.error(error_message)
+        return {'success': False, 'error': error_message}
+    
+    except requests.exceptions.Timeout:
+        return {'success': False, 'error': 'Request timed out. The image generation is taking longer than expected.'}
+    except requests.exceptions.RequestException as e:
+        return {'success': False, 'error': f'Request error: {str(e)}'}
+    except Exception as e:
+        return {'success': False, 'error': f'Unexpected error: {str(e)}'}
+
+# Update the frame generation function to use SDXL Turbo
 def generate_frame_with_retry(prompt):
     """Generates frame with retry logic for quota limits"""
     global last_quota_exceeded
@@ -346,48 +403,44 @@ def generate_frame_with_retry(prompt):
                     time.sleep(wait_time)
                 last_quota_exceeded = None
 
-            # Make the API call to FLUX Pro
-            result = flux_pro_client.predict(
-                prompt=prompt,
-                width=FRAME_IMAGE_SIZE['width'],
-                height=FRAME_IMAGE_SIZE['height'],
-                seed=42,
-                randomize=True,
-                server_choice="Google US Server",
-                api_name="/generate_image"
-            )
+            # Generate image using SDXL Turbo
+            result = generate_image_with_sdxl_turbo(prompt)
             
-            # Check if the result is valid
-            if result and isinstance(result, str) and os.path.exists(result):
-                # Read the image and encode to base64
-                with open(result, 'rb') as img_file:
-                    image_data = base64.b64encode(img_file.read()).decode('utf-8')
-                return {'success': True, 'image': f"data:image/png;base64,{image_data}"}
+            if result['success']:
+                return result
             else:
-                logger.error(f"Invalid result from FLUX Pro API: {result}")
+                error_msg = result.get('error', 'Unknown error')
+                logger.error(f"SDXL Turbo API error: {error_msg}")
+                
+                # Check for quota or rate limit errors
+                if any(term in error_msg.lower() for term in ['quota', 'rate limit', 'too many requests']):
+                    last_quota_exceeded = datetime.now()
+                    if attempt < FRAME_GENERATION_CONFIG['MAX_RETRIES'] - 1:
+                        logger.warning(f"Attempt {attempt + 1} failed due to quota limits. Retrying after delay...")
+                        time.sleep(FRAME_GENERATION_CONFIG['RETRY_DELAY'])
+                        continue
+                
                 if attempt < FRAME_GENERATION_CONFIG['MAX_RETRIES'] - 1:
+                    logger.warning(f"Attempt {attempt + 1} failed. Retrying after delay...")
                     time.sleep(FRAME_GENERATION_CONFIG['RETRY_DELAY'])
                     continue
-                return {'success': False, 'error': f'Invalid result from image generation API: {result}'}
+                
+                return result
 
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"FLUX Pro API error: {error_msg}")
-            if 'quota' in error_msg.lower() or 'rate limit' in error_msg.lower():
-                last_quota_exceeded = datetime.now()
-                wait_time = FRAME_GENERATION_CONFIG['QUOTA_WAIT_TIME']
-                logger.warning(f"API quota exceeded. Waiting {wait_time}s before retry")
-                if attempt < FRAME_GENERATION_CONFIG['MAX_RETRIES'] - 1:
-                    time.sleep(FRAME_GENERATION_CONFIG['RETRY_DELAY'])
-                    continue
+            logger.error(f"Exception in frame generation: {error_msg}")
+            
             if attempt < FRAME_GENERATION_CONFIG['MAX_RETRIES'] - 1:
+                logger.warning(f"Attempt {attempt + 1} failed due to exception. Retrying after delay...")
                 time.sleep(FRAME_GENERATION_CONFIG['RETRY_DELAY'])
                 continue
+            
             return {'success': False, 'error': f"Frame generation failed: {error_msg}"}
 
     return {'success': False, 'error': 'Max retries exceeded for frame generation'}
 
-# Update the generate_frame route to be synchronous
+# Update the generate_frame route
 @app.route('/generate_frame', methods=['POST'])
 def generate_frame():
     """Handles frame generation requests with quota management"""
@@ -410,7 +463,7 @@ def generate_frame():
             
         except Exception as e:
             error_msg = str(e)
-            if 'quota' in error_msg.lower() or 'rate limit' in error_msg.lower():
+            if any(term in error_msg.lower() for term in ['quota', 'rate limit', 'too many requests']):
                 wait_time = FRAME_GENERATION_CONFIG['QUOTA_WAIT_TIME']
                 return jsonify({
                     'success': False,
@@ -423,13 +476,46 @@ def generate_frame():
         logger.error(f"Frame generation error: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# Simplify health check to remove SDXL server check
+# Add endpoint to check SDXL Turbo API status
+@app.route('/check_sdxl_status', methods=['GET'])
+def check_sdxl_status():
+    """Check the status of the SDXL Turbo API"""
+    try:
+        response = requests.get(
+            f"{SDXL_TURBO_API_URL}/health",
+            headers={"Authorization": f"Bearer {hf_token}"},
+            timeout=5
+        )
+        
+        if response.status_code == 200:
+            return jsonify({
+                'status': 'online',
+                'details': response.json()
+            })
+        else:
+            return jsonify({
+                'status': 'degraded',
+                'details': {
+                    'status_code': response.status_code,
+                    'message': response.text
+                }
+            })
+    except Exception as e:
+        return jsonify({
+            'status': 'offline',
+            'details': {
+                'error': str(e)
+            }
+        })
+
+# Update health check to include SDXL Turbo
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({
         'status': 'healthy',
         'services': {
             'gemini': bool(os.getenv("GOOGLE_API_KEY")),
+            'sdxl_turbo': bool(SDXL_TURBO_API_URL and SDXL_TURBO_API_URL != "https://your-sdxl-turbo-space.hf.space")
         }
     })
 
