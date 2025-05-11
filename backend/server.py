@@ -140,7 +140,7 @@ def retry_with_backoff(func, *args, **kwargs):
 
 # Create Flask app
 app = Flask(__name__)
-CORS(app, origins=["https://storygeneratorfrontend.vercel.app/", "http://localhost:3000"])
+CORS(app)
 
 def handle_preflight():
     """Handle preflight CORS requests"""
