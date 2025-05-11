@@ -20,8 +20,6 @@ from concurrent.futures import ThreadPoolExecutor
 from gradio_client import Client
 import base64
 from queue import Queue
-import asyncio
-import aiohttp
 from huggingface_hub import login
 
 # Move logger configuration before any logger usage
@@ -331,8 +329,8 @@ frame_queue = Queue(maxsize=FRAME_GENERATION_CONFIG['MAX_QUEUE_SIZE'])
 last_quota_exceeded = None
 frame_generation_lock = Lock()
 
-# Update the frame generation function to use FLUX Pro API
-async def generate_frame_with_retry(prompt):
+# Update the frame generation function to use FLUX Pro API - making it synchronous
+def generate_frame_with_retry(prompt):
     """Generates frame with retry logic for quota limits"""
     global last_quota_exceeded
     
@@ -345,7 +343,7 @@ async def generate_frame_with_retry(prompt):
                            datetime.now()).total_seconds()
                 if wait_time > 0:
                     logger.info(f"Waiting {wait_time:.0f}s for quota reset")
-                    await asyncio.sleep(wait_time)
+                    time.sleep(wait_time)
                 last_quota_exceeded = None
 
             # Make the API call to FLUX Pro
@@ -368,7 +366,7 @@ async def generate_frame_with_retry(prompt):
             else:
                 logger.error(f"Invalid result from FLUX Pro API: {result}")
                 if attempt < FRAME_GENERATION_CONFIG['MAX_RETRIES'] - 1:
-                    await asyncio.sleep(FRAME_GENERATION_CONFIG['RETRY_DELAY'])
+                    time.sleep(FRAME_GENERATION_CONFIG['RETRY_DELAY'])
                     continue
                 return {'success': False, 'error': f'Invalid result from image generation API: {result}'}
 
@@ -380,18 +378,18 @@ async def generate_frame_with_retry(prompt):
                 wait_time = FRAME_GENERATION_CONFIG['QUOTA_WAIT_TIME']
                 logger.warning(f"API quota exceeded. Waiting {wait_time}s before retry")
                 if attempt < FRAME_GENERATION_CONFIG['MAX_RETRIES'] - 1:
-                    await asyncio.sleep(FRAME_GENERATION_CONFIG['RETRY_DELAY'])
+                    time.sleep(FRAME_GENERATION_CONFIG['RETRY_DELAY'])
                     continue
             if attempt < FRAME_GENERATION_CONFIG['MAX_RETRIES'] - 1:
-                await asyncio.sleep(FRAME_GENERATION_CONFIG['RETRY_DELAY'])
+                time.sleep(FRAME_GENERATION_CONFIG['RETRY_DELAY'])
                 continue
             return {'success': False, 'error': f"Frame generation failed: {error_msg}"}
 
     return {'success': False, 'error': 'Max retries exceeded for frame generation'}
 
-# Update the generate_frame route
+# Update the generate_frame route to be synchronous
 @app.route('/generate_frame', methods=['POST'])
-async def generate_frame():
+def generate_frame():
     """Handles frame generation requests with quota management"""
     try:
         if not request.is_json:
@@ -404,7 +402,7 @@ async def generate_frame():
         prompt = data['prompt']
         
         try:
-            result = await generate_frame_with_retry(prompt)
+            result = generate_frame_with_retry(prompt)
             if result['success']:
                 return jsonify(result)
             else:
