@@ -6,7 +6,8 @@
 import axios from "axios";
 
 const BACKEND_URL =
-  process.env.REACT_APP_BACKEND_URL || "http://localhost:5000";
+  process.env.REACT_APP_BACKEND_URL ||
+  "https://story-generator-api.onrender.com";
 
 const api = {
   generateStory: async (images, genre, length) => {
