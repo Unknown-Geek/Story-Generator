@@ -1,6 +1,6 @@
 """
 AI-powered Story Generator Server
-Handles story generation using Gemini API and image generation using SDXL-Lightning
+Handles story generation using Gemini API and image generation using FLUX Pro API
 """
 
 from flask import Flask, request, jsonify, make_response
@@ -297,11 +297,11 @@ def generate_story():
 
 # Add new configuration for frame generation
 FRAME_IMAGE_SIZE = {
-    'width': 320,  # Reduced width for 4:3 aspect ratio
-    'height': 240  # Reduced height for 4:3 aspect ratio
+    'width': 512,  # Updated to match FLUX Pro default
+    'height': 512  # Updated to match FLUX Pro default
 }
-MAX_CACHED_FRAMES = 100  # Increased from 50 to 100
-CACHE_CLEANUP_THRESHOLD = 80  # Clean when we reach 80% capacity
+MAX_CACHED_FRAMES = 100
+CACHE_CLEANUP_THRESHOLD = 80
 frame_cache = {}
 
 def clean_old_frames():
@@ -315,14 +315,8 @@ def clean_old_frames():
 # Add parallel processing for frame generation
 executor = ThreadPoolExecutor(max_workers=4)
 
-# Initialize SDXL-Lightning client
-sdxl_client = Client(
-    "ByteDance/SDXL-Lightning",
-    hf_token=os.getenv("HUGGINGFACE_API_KEY")  # Changed to match environment variable name
-)
-
-# Initialize Gradio client
-gradio_client = Client("https://playgroundai-playground-v2-5.hf.space/--replicas/it7wu/")
+# Initialize FLUX Pro API client
+flux_pro_client = Client("NihalGazi/FLUX-Pro-Unlimited")
 
 # Add new constants for frame generation
 FRAME_GENERATION_CONFIG = {
@@ -337,7 +331,7 @@ frame_queue = Queue(maxsize=FRAME_GENERATION_CONFIG['MAX_QUEUE_SIZE'])
 last_quota_exceeded = None
 frame_generation_lock = Lock()
 
-# Update the frame generation function
+# Update the frame generation function to use FLUX Pro API
 async def generate_frame_with_retry(prompt):
     """Generates frame with retry logic for quota limits"""
     global last_quota_exceeded
@@ -354,32 +348,44 @@ async def generate_frame_with_retry(prompt):
                     await asyncio.sleep(wait_time)
                 last_quota_exceeded = None
 
-            # Update the predict call to match the API's parameters
-            result = gradio_client.predict(
-                prompt,  # str in 'Prompt' Textbox component
-                "",  # str in 'Negative prompt' Textbox component
-                False,  # bool in 'Use negative prompt' Checkbox component
-                0,  # float (numeric value between 0 and 2147483647) in 'Seed' Slider component
-                320,  # float (numeric value between 256 and 1536) in 'Width' Slider component
-                240,  # float (numeric value between 256 and 1536) in 'Height' Slider component
-                0.1,  # float (numeric value between 0.1 and 20) in 'Guidance Scale' Slider component
-                True,  # bool in 'Randomize seed' Checkbox component
-                api_name="/run"
+            # Make the API call to FLUX Pro
+            result = flux_pro_client.predict(
+                prompt=prompt,
+                width=FRAME_IMAGE_SIZE['width'],
+                height=FRAME_IMAGE_SIZE['height'],
+                seed=42,
+                randomize=True,
+                server_choice="Google US Server",
+                api_name="/generate_image"
             )
             
-            image_data = base64.b64encode(open(result[0][0]['image'], 'rb').read()).decode('utf-8')
-            return {'success': True, 'image': f"data:image/png;base64,{image_data}"}
-
-        except Exception as e:
-            error_msg = str(e)
-            if 'exceeded your GPU quota' in error_msg:
-                last_quota_exceeded = datetime.now()
-                wait_time = FRAME_GENERATION_CONFIG['QUOTA_WAIT_TIME']
-                logger.warning(f"GPU quota exceeded. Waiting {wait_time}s before retry")
+            # Check if the result is valid
+            if result and isinstance(result, str) and os.path.exists(result):
+                # Read the image and encode to base64
+                with open(result, 'rb') as img_file:
+                    image_data = base64.b64encode(img_file.read()).decode('utf-8')
+                return {'success': True, 'image': f"data:image/png;base64,{image_data}"}
+            else:
+                logger.error(f"Invalid result from FLUX Pro API: {result}")
                 if attempt < FRAME_GENERATION_CONFIG['MAX_RETRIES'] - 1:
                     await asyncio.sleep(FRAME_GENERATION_CONFIG['RETRY_DELAY'])
                     continue
-            raise Exception(f"Frame generation failed after {attempt + 1} attempts: {error_msg}")
+                return {'success': False, 'error': f'Invalid result from image generation API: {result}'}
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"FLUX Pro API error: {error_msg}")
+            if 'quota' in error_msg.lower() or 'rate limit' in error_msg.lower():
+                last_quota_exceeded = datetime.now()
+                wait_time = FRAME_GENERATION_CONFIG['QUOTA_WAIT_TIME']
+                logger.warning(f"API quota exceeded. Waiting {wait_time}s before retry")
+                if attempt < FRAME_GENERATION_CONFIG['MAX_RETRIES'] - 1:
+                    await asyncio.sleep(FRAME_GENERATION_CONFIG['RETRY_DELAY'])
+                    continue
+            if attempt < FRAME_GENERATION_CONFIG['MAX_RETRIES'] - 1:
+                await asyncio.sleep(FRAME_GENERATION_CONFIG['RETRY_DELAY'])
+                continue
+            return {'success': False, 'error': f"Frame generation failed: {error_msg}"}
 
     return {'success': False, 'error': 'Max retries exceeded for frame generation'}
 
@@ -406,11 +412,11 @@ async def generate_frame():
             
         except Exception as e:
             error_msg = str(e)
-            if 'GPU quota' in error_msg:
+            if 'quota' in error_msg.lower() or 'rate limit' in error_msg.lower():
                 wait_time = FRAME_GENERATION_CONFIG['QUOTA_WAIT_TIME']
                 return jsonify({
                     'success': False,
-                    'error': f'GPU quota exceeded. Please try again in {wait_time//60} minutes.',
+                    'error': f'API quota exceeded. Please try again in {wait_time//60} minutes.',
                     'retry_after': wait_time
                 }), 429
             return jsonify({'success': False, 'error': error_msg}), 500
