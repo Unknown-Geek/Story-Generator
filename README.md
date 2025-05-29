@@ -61,10 +61,10 @@ An AI-powered web application that generates unique stories from your images. Up
    pip install -r requirements.txt
    ```
 
-4. Create a `.env` file in the backend directory with your OpenAI API key
+4. Create a `.env` file in the backend directory with your Gemini API key
 
    ```
-   OPENAI_API_KEY=your_api_key_here
+   Gemini_API_KEY=your_api_key_here
    ```
 
 5. Start the server
@@ -102,7 +102,6 @@ The backend can be deployed to platforms like:
 
 - Render
 - Heroku
-- AWS Lambda
 
 A Procfile and render.yaml are included for easy deployment.
 
@@ -112,7 +111,6 @@ The frontend can be deployed to:
 
 - Vercel
 - Netlify
-- GitHub Pages
 
 ## Usage
 
@@ -132,33 +130,3 @@ MIT
 
 - OpenAI for providing the image understanding and story generation APIs
 - The React and Tailwind CSS communities for their excellent documentation and tools
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
