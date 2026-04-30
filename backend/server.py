@@ -134,7 +134,7 @@ def retry_with_backoff(func, *args, **kwargs):
     else:
         raise Exception("All retry attempts failed")
 
-def generate_content_with_config(genai_client, *, model, contents, config):
+def generate_content_with_config(*, genai_client, model, contents, config):
     """Call Gemini generate_content with the correct config keyword."""
     generate_fn = genai_client.models.generate_content
     config_payload = {"config": config}
@@ -151,9 +151,9 @@ def generate_content_with_config(genai_client, *, model, contents, config):
         return generate_fn(model=model, contents=contents, **config_payload)
     except TypeError as exc:
         message = str(exc)
-        if "config" in message and "generation_config" not in message:
+        if "unexpected keyword argument 'config'" in message:
             return generate_fn(model=model, contents=contents, generation_config=config)
-        if "generation_config" in message and "config" not in message:
+        if "unexpected keyword argument 'generation_config'" in message:
             return generate_fn(model=model, contents=contents, config=config)
         raise
 
@@ -258,7 +258,7 @@ def generate_story():
                 ]
                 response = retry_with_backoff(
                     generate_content_with_config,
-                    genai_client,
+                    genai_client=genai_client,
                     model=MODEL_NAME,
                     contents=vision_contents,
                     config=generation_config,
@@ -284,7 +284,7 @@ def generate_story():
             
             story_response = retry_with_backoff(
                 generate_content_with_config,
-                genai_client,
+                genai_client=genai_client,
                 model=MODEL_NAME,
                 contents=story_prompt,
                 config=generation_config,
