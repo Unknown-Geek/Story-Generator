@@ -8,7 +8,8 @@ from flask_cors import CORS
 import logging
 import os
 import time
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 from io import BytesIO
 from datetime import datetime, timedelta
@@ -28,7 +29,7 @@ logger = logging.getLogger(__name__)
 load_dotenv(dotenv_path='../.env')
 
 # Configure Google AI
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # Define age-appropriate themes for each genre
 GENRE_THEMES = {
@@ -42,52 +43,44 @@ GENRE_THEMES = {
 
 # Configure safety settings
 SAFETY_SETTINGS = [
-    {
-        "category": "HARM_CATEGORY_DANGEROUS",
-        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-    },
-    {
-        "category": "HARM_CATEGORY_HARASSMENT",
-        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-    },
-    {
-        "category": "HARM_CATEGORY_HATE_SPEECH",
-        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-    },
-    {
-        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-    },
-    {
-        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-    },
+    types.SafetySetting(
+        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold=types.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    ),
+    types.SafetySetting(
+        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+        threshold=types.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    ),
+    types.SafetySetting(
+        category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        threshold=types.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    ),
+    types.SafetySetting(
+        category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        threshold=types.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    ),
 ]
 
 # Create generation config
-generation_config = {
-    "temperature": 0.7,
-    "top_p": 0.8,
-    "top_k": 40,
-    "max_output_tokens": 8192,
-}
+generation_config = types.GenerationConfig(
+    temperature=0.7,
+    top_p=0.8,
+    top_k=40,
+    max_output_tokens=8192,
+)
 
 # Add retry configuration
 GEMINI_MAX_RETRIES = 5
 GEMINI_RETRY_DELAYS = [0.5, 1, 2, 4, 8]  # Exponential backoff in seconds
 
 # Create AI models
-vision_model = genai.GenerativeModel(
-    'gemini-2.0-flash',
-    generation_config=generation_config,
-    safety_settings=SAFETY_SETTINGS
-)
+MODEL_NAME = "gemini-2.5-flash"
 
-story_model = genai.GenerativeModel(
-    'gemini-2.0-flash',
-    generation_config=generation_config,
-    safety_settings=SAFETY_SETTINGS
-)
+IMAGE_MIME_TYPES = {
+    "JPEG": "image/jpeg",
+    "PNG": "image/png",
+    "WEBP": "image/webp",
+}
 
 # Rate limiting setup
 RATE_LIMIT_WINDOW = 60  # 1 minute
@@ -197,10 +190,11 @@ def generate_story():
                 # Validate base64 image
                 image_data = base64.b64decode(image_base64)
                 image = Image.open(BytesIO(image_data))
-                
+                image_format = image.format
+
                 # Validate image format
-                if image.format not in ['JPEG', 'PNG', 'WEBP']:
-                    logger.error(f"Invalid image format for image {idx+1}: {image.format}")
+                if image_format not in IMAGE_MIME_TYPES:
+                    logger.error(f"Invalid image format for image {idx+1}: {image_format}")
                     return jsonify({
                         'success': False,
                         'error': f'Invalid image format for image {idx+1}. Please use JPEG, PNG, or WEBP.'
@@ -208,9 +202,24 @@ def generate_story():
 
                 # Generate description for this image
                 vision_prompt = f"Describe this image in detail for creating a {genre} story."
+                vision_contents = [
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_text(vision_prompt),
+                            types.Part.from_bytes(
+                                data=image_data,
+                                mime_type=IMAGE_MIME_TYPES[image_format],
+                            ),
+                        ],
+                    )
+                ]
                 response = retry_with_backoff(
-                    vision_model.generate_content,
-                    [vision_prompt, image]
+                    client.models.generate_content,
+                    model=MODEL_NAME,
+                    contents=vision_contents,
+                    generation_config=generation_config,
+                    safety_settings=SAFETY_SETTINGS,
                 )
                 image_descriptions.append(response.text)
                 logger.info(f"Generated description for image {idx+1}")
@@ -232,8 +241,11 @@ def generate_story():
             """
             
             story_response = retry_with_backoff(
-                story_model.generate_content,
-                story_prompt
+                client.models.generate_content,
+                model=MODEL_NAME,
+                contents=story_prompt,
+                generation_config=generation_config,
+                safety_settings=SAFETY_SETTINGS,
             )
             story = story_response.text
 
