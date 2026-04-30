@@ -32,6 +32,8 @@ load_dotenv(dotenv_path='../.env')
 # Configure Google AI
 _genai_client = None
 _genai_client_lock = Lock()
+_genai_config_param = None
+_genai_config_param_lock = Lock()
 
 # Define age-appropriate themes for each genre
 GENRE_THEMES = {
@@ -134,17 +136,38 @@ def retry_with_backoff(func, *args, **kwargs):
     else:
         raise Exception("All retry attempts failed")
 
+def _get_genai_config_param(generate_fn):
+    global _genai_config_param
+    if _genai_config_param is not None:
+        return _genai_config_param
+
+    with _genai_config_param_lock:
+        if _genai_config_param is not None:
+            return _genai_config_param
+        try:
+            parameters = inspect.signature(generate_fn).parameters
+        except (TypeError, ValueError):
+            _genai_config_param = "config"
+            return _genai_config_param
+
+        has_config = "config" in parameters
+        has_generation_config = "generation_config" in parameters
+
+        if has_config:
+            _genai_config_param = "config"
+        elif has_generation_config:
+            _genai_config_param = "generation_config"
+
+        return _genai_config_param or "config"
+
 def generate_content_with_config(*, genai_client, model, contents, config):
     """Call Gemini generate_content with the correct config keyword."""
+    global _genai_config_param
     generate_fn = genai_client.models.generate_content
     config_payload = {"config": config}
 
-    try:
-        parameters = inspect.signature(generate_fn).parameters
-    except (TypeError, ValueError):
-        parameters = {}
-
-    if parameters and "generation_config" in parameters and "config" not in parameters:
+    config_param = _get_genai_config_param(generate_fn)
+    if config_param == "generation_config":
         config_payload = {"generation_config": config}
 
     try:
@@ -152,8 +175,12 @@ def generate_content_with_config(*, genai_client, model, contents, config):
     except TypeError as exc:
         message = str(exc)
         if "unexpected keyword argument 'config'" in message:
+            with _genai_config_param_lock:
+                _genai_config_param = "generation_config"
             return generate_fn(model=model, contents=contents, generation_config=config)
         if "unexpected keyword argument 'generation_config'" in message:
+            with _genai_config_param_lock:
+                _genai_config_param = "config"
             return generate_fn(model=model, contents=contents, config=config)
         raise
 
