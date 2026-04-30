@@ -8,6 +8,7 @@ from flask_cors import CORS
 import logging
 import os
 import time
+import inspect
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -31,6 +32,8 @@ load_dotenv(dotenv_path='../.env')
 # Configure Google AI
 _genai_client = None
 _genai_client_lock = Lock()
+_genai_config_param = None
+_genai_config_param_lock = Lock()
 
 # Define age-appropriate themes for each genre
 GENRE_THEMES = {
@@ -133,6 +136,52 @@ def retry_with_backoff(func, *args, **kwargs):
     else:
         raise Exception("All retry attempts failed")
 
+def _get_genai_config_param(generate_fn):
+    global _genai_config_param
+    with _genai_config_param_lock:
+        if _genai_config_param is not None:
+            return _genai_config_param
+        try:
+            parameters = inspect.signature(generate_fn).parameters
+        except (TypeError, ValueError):
+            _genai_config_param = "config"
+            return _genai_config_param
+
+        has_config = "config" in parameters
+        has_generation_config = "generation_config" in parameters
+
+        if has_config:
+            _genai_config_param = "config"
+        elif has_generation_config:
+            _genai_config_param = "generation_config"
+        else:
+            _genai_config_param = "config"
+
+        return _genai_config_param
+
+def generate_content_with_config(*, genai_client, model, contents, config):
+    """Call Gemini generate_content with the correct config keyword."""
+    global _genai_config_param
+    generate_fn = genai_client.models.generate_content
+    config_param = _get_genai_config_param(generate_fn)
+    config_payload = {config_param: config}
+
+    try:
+        return generate_fn(model=model, contents=contents, **config_payload)
+    except TypeError as exc:
+        message = str(exc)
+        if "unexpected keyword argument 'config'" in message:
+            logger.warning("Gemini generate_content rejected config param; retrying with generation_config.")
+            with _genai_config_param_lock:
+                _genai_config_param = "generation_config"
+            return generate_fn(model=model, contents=contents, generation_config=config)
+        if "unexpected keyword argument 'generation_config'" in message:
+            logger.warning("Gemini generate_content rejected generation_config param; retrying with config.")
+            with _genai_config_param_lock:
+                _genai_config_param = "config"
+            return generate_fn(model=model, contents=contents, config=config)
+        raise
+
 def get_genai_client():
     """Lazily initialize the Gemini client once the API key is available."""
     api_key = os.getenv("GOOGLE_API_KEY")
@@ -233,7 +282,8 @@ def generate_story():
                     )
                 ]
                 response = retry_with_backoff(
-                    genai_client.models.generate_content,
+                    generate_content_with_config,
+                    genai_client=genai_client,
                     model=MODEL_NAME,
                     contents=vision_contents,
                     config=generation_config,
@@ -258,7 +308,8 @@ def generate_story():
             """
             
             story_response = retry_with_backoff(
-                genai_client.models.generate_content,
+                generate_content_with_config,
+                genai_client=genai_client,
                 model=MODEL_NAME,
                 contents=story_prompt,
                 config=generation_config,
