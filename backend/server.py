@@ -141,11 +141,10 @@ def get_genai_client():
         )
 
     global _genai_client
-    if _genai_client is None:
-        with _genai_client_lock:
-            if _genai_client is None:
-                _genai_client = genai.Client(api_key=api_key)
-    return _genai_client
+    with _genai_client_lock:
+        if _genai_client is None:
+            _genai_client = genai.Client(api_key=api_key)
+        return _genai_client
 
 # Create Flask app
 app = Flask(__name__)
