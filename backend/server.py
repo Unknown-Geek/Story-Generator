@@ -8,6 +8,7 @@ from flask_cors import CORS
 import logging
 import os
 import time
+import inspect
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -133,6 +134,29 @@ def retry_with_backoff(func, *args, **kwargs):
     else:
         raise Exception("All retry attempts failed")
 
+def generate_content_with_config(genai_client, *, model, contents, config):
+    """Call Gemini generate_content with the correct config keyword."""
+    generate_fn = genai_client.models.generate_content
+    config_payload = {"config": config}
+
+    try:
+        parameters = inspect.signature(generate_fn).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+
+    if parameters and "generation_config" in parameters and "config" not in parameters:
+        config_payload = {"generation_config": config}
+
+    try:
+        return generate_fn(model=model, contents=contents, **config_payload)
+    except TypeError as exc:
+        message = str(exc)
+        if "config" in message and "generation_config" not in message:
+            return generate_fn(model=model, contents=contents, generation_config=config)
+        if "generation_config" in message and "config" not in message:
+            return generate_fn(model=model, contents=contents, config=config)
+        raise
+
 def get_genai_client():
     """Lazily initialize the Gemini client once the API key is available."""
     api_key = os.getenv("GOOGLE_API_KEY")
@@ -233,7 +257,8 @@ def generate_story():
                     )
                 ]
                 response = retry_with_backoff(
-                    genai_client.models.generate_content,
+                    generate_content_with_config,
+                    genai_client,
                     model=MODEL_NAME,
                     contents=vision_contents,
                     config=generation_config,
@@ -258,7 +283,8 @@ def generate_story():
             """
             
             story_response = retry_with_backoff(
-                genai_client.models.generate_content,
+                generate_content_with_config,
+                genai_client,
                 model=MODEL_NAME,
                 contents=story_prompt,
                 config=generation_config,
