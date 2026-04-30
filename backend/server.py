@@ -136,7 +136,9 @@ def get_genai_client():
     """Lazily initialize the Gemini client once the API key is available."""
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY environment variable is not set.")
+        raise RuntimeError(
+            "GOOGLE_API_KEY is not set. Configure it in your environment or .env file."
+        )
 
     global _genai_client
     if _genai_client is None:
@@ -167,11 +169,11 @@ def generate_story():
     try:
         try:
             genai_client = get_genai_client()
-        except Exception as e:
-            logger.exception("Gemini client initialization failed")
+        except RuntimeError as e:
+            logger.error("Gemini client initialization failed: %s", e)
             return jsonify({
                 'success': False,
-                'error': f'Server configuration error: {str(e)}'
+                'error': 'Server configuration error: GOOGLE_API_KEY is not set.'
             }), 500
 
         # Validate request body
