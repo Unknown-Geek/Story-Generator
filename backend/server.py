@@ -63,11 +63,12 @@ SAFETY_SETTINGS = [
 ]
 
 # Create generation config
-generation_config = types.GenerationConfig(
+generation_config = types.GenerateContentConfig(
     temperature=0.7,
     top_p=0.8,
     top_k=40,
     max_output_tokens=8192,
+    safety_settings=SAFETY_SETTINGS,
 )
 
 # Add retry configuration
@@ -235,8 +236,7 @@ def generate_story():
                     genai_client.models.generate_content,
                     model=MODEL_NAME,
                     contents=vision_contents,
-                    generation_config=generation_config,
-                    safety_settings=SAFETY_SETTINGS,
+                    config=generation_config,
                 )
                 image_descriptions.append(response.text)
                 logger.info(f"Generated description for image {idx+1}")
@@ -261,8 +261,7 @@ def generate_story():
                 genai_client.models.generate_content,
                 model=MODEL_NAME,
                 contents=story_prompt,
-                generation_config=generation_config,
-                safety_settings=SAFETY_SETTINGS,
+                config=generation_config,
             )
             story = story_response.text
 
