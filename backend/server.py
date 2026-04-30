@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 load_dotenv(dotenv_path='../.env')
 
 # Configure Google AI
-client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+_genai_client = None
+_genai_client_lock = Lock()
 
 # Define age-appropriate themes for each genre
 GENRE_THEMES = {
@@ -131,6 +132,20 @@ def retry_with_backoff(func, *args, **kwargs):
     else:
         raise Exception("All retry attempts failed")
 
+def get_genai_client():
+    """Lazily initialize the Gemini client once the API key is available."""
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "GOOGLE_API_KEY is not set. Configure it in your environment or .env file."
+        )
+
+    global _genai_client
+    with _genai_client_lock:
+        if _genai_client is None:
+            _genai_client = genai.Client(api_key=api_key)
+        return _genai_client
+
 # Create Flask app
 app = Flask(__name__)
 CORS(app)
@@ -183,6 +198,8 @@ def generate_story():
                 'error': 'No images provided'
             }), 400
 
+        genai_client = get_genai_client()
+
         # Process all images and create descriptions
         image_descriptions = []
         try:
@@ -215,7 +232,7 @@ def generate_story():
                     )
                 ]
                 response = retry_with_backoff(
-                    client.models.generate_content,
+                    genai_client.models.generate_content,
                     model=MODEL_NAME,
                     contents=vision_contents,
                     generation_config=generation_config,
@@ -241,7 +258,7 @@ def generate_story():
             """
             
             story_response = retry_with_backoff(
-                client.models.generate_content,
+                genai_client.models.generate_content,
                 model=MODEL_NAME,
                 contents=story_prompt,
                 generation_config=generation_config,
@@ -262,6 +279,12 @@ def generate_story():
                 'error': f'Error processing request: {str(e)}'
             }), 500
 
+    except RuntimeError as e:
+        logger.error("Gemini client initialization failed: %s", e)
+        return jsonify({
+            'success': False,
+            'error': 'Server configuration error: GOOGLE_API_KEY is not set.'
+        }), 500
     except Exception as e:
         logger.exception("Unexpected server error")
         return jsonify({
