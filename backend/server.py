@@ -283,7 +283,7 @@ def generate_story():
         logger.error("Gemini client initialization failed: %s", e)
         return jsonify({
             'success': False,
-            'error': f'Server configuration error: {str(e)}'
+            'error': 'Server configuration error: GOOGLE_API_KEY is not set.'
         }), 500
     except Exception as e:
         logger.exception("Unexpected server error")
