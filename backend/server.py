@@ -166,8 +166,6 @@ def generate_story():
         return handle_preflight()
 
     try:
-        genai_client = get_genai_client()
-
         # Validate request body
         if not request.is_json:
             logger.error("Request body is not JSON")
@@ -199,6 +197,8 @@ def generate_story():
                 'success': False,
                 'error': 'No images provided'
             }), 400
+
+        genai_client = get_genai_client()
 
         # Process all images and create descriptions
         image_descriptions = []
@@ -283,7 +283,7 @@ def generate_story():
         logger.error("Gemini client initialization failed: %s", e)
         return jsonify({
             'success': False,
-            'error': 'Server configuration error: GOOGLE_API_KEY is not set.'
+            'error': f'Server configuration error: {str(e)}'
         }), 500
     except Exception as e:
         logger.exception("Unexpected server error")
