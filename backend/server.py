@@ -138,9 +138,6 @@ def retry_with_backoff(func, *args, **kwargs):
 
 def _get_genai_config_param(generate_fn):
     global _genai_config_param
-    if _genai_config_param is not None:
-        return _genai_config_param
-
     with _genai_config_param_lock:
         if _genai_config_param is not None:
             return _genai_config_param
@@ -157,28 +154,29 @@ def _get_genai_config_param(generate_fn):
             _genai_config_param = "config"
         elif has_generation_config:
             _genai_config_param = "generation_config"
+        else:
+            _genai_config_param = "config"
 
-        return _genai_config_param or "config"
+        return _genai_config_param
 
 def generate_content_with_config(*, genai_client, model, contents, config):
     """Call Gemini generate_content with the correct config keyword."""
     global _genai_config_param
     generate_fn = genai_client.models.generate_content
-    config_payload = {"config": config}
-
     config_param = _get_genai_config_param(generate_fn)
-    if config_param == "generation_config":
-        config_payload = {"generation_config": config}
+    config_payload = {config_param: config}
 
     try:
         return generate_fn(model=model, contents=contents, **config_payload)
     except TypeError as exc:
         message = str(exc)
         if "unexpected keyword argument 'config'" in message:
+            logger.warning("Gemini generate_content rejected config param; retrying with generation_config.")
             with _genai_config_param_lock:
                 _genai_config_param = "generation_config"
             return generate_fn(model=model, contents=contents, generation_config=config)
         if "unexpected keyword argument 'generation_config'" in message:
+            logger.warning("Gemini generate_content rejected generation_config param; retrying with config.")
             with _genai_config_param_lock:
                 _genai_config_param = "config"
             return generate_fn(model=model, contents=contents, config=config)
