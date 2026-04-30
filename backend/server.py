@@ -166,14 +166,7 @@ def generate_story():
         return handle_preflight()
 
     try:
-        try:
-            genai_client = get_genai_client()
-        except RuntimeError as e:
-            logger.error("Gemini client initialization failed: %s", e)
-            return jsonify({
-                'success': False,
-                'error': 'Server configuration error: GOOGLE_API_KEY is not set.'
-            }), 500
+        genai_client = get_genai_client()
 
         # Validate request body
         if not request.is_json:
@@ -286,6 +279,12 @@ def generate_story():
                 'error': f'Error processing request: {str(e)}'
             }), 500
 
+    except RuntimeError as e:
+        logger.error("Gemini client initialization failed: %s", e)
+        return jsonify({
+            'success': False,
+            'error': 'Server configuration error: GOOGLE_API_KEY is not set.'
+        }), 500
     except Exception as e:
         logger.exception("Unexpected server error")
         return jsonify({
