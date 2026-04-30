@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 load_dotenv(dotenv_path='../.env')
 
 # Configure Google AI
-client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+_genai_client = None
+_genai_client_lock = Lock()
 
 # Define age-appropriate themes for each genre
 GENRE_THEMES = {
@@ -131,6 +132,19 @@ def retry_with_backoff(func, *args, **kwargs):
     else:
         raise Exception("All retry attempts failed")
 
+def get_genai_client():
+    """Lazily initialize the Gemini client once the API key is available."""
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY environment variable is not set.")
+
+    global _genai_client
+    if _genai_client is None:
+        with _genai_client_lock:
+            if _genai_client is None:
+                _genai_client = genai.Client(api_key=api_key)
+    return _genai_client
+
 # Create Flask app
 app = Flask(__name__)
 CORS(app)
@@ -151,6 +165,15 @@ def generate_story():
         return handle_preflight()
 
     try:
+        try:
+            genai_client = get_genai_client()
+        except Exception as e:
+            logger.exception("Gemini client initialization failed")
+            return jsonify({
+                'success': False,
+                'error': f'Server configuration error: {str(e)}'
+            }), 500
+
         # Validate request body
         if not request.is_json:
             logger.error("Request body is not JSON")
@@ -215,7 +238,7 @@ def generate_story():
                     )
                 ]
                 response = retry_with_backoff(
-                    client.models.generate_content,
+                    genai_client.models.generate_content,
                     model=MODEL_NAME,
                     contents=vision_contents,
                     generation_config=generation_config,
@@ -241,7 +264,7 @@ def generate_story():
             """
             
             story_response = retry_with_backoff(
-                client.models.generate_content,
+                genai_client.models.generate_content,
                 model=MODEL_NAME,
                 contents=story_prompt,
                 generation_config=generation_config,
